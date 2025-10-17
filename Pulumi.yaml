@@ -1,0 +1,6 @@
+name: dp-self-hosted-azure
+description: An Azure serverless DP self-hosted function
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm

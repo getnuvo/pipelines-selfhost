@@ -1,0 +1,17 @@
+{
+  "name": "azure-ts-functions",
+  "version": "1.0.0",
+  "devDependencies": {
+    "@types/node": "22.13.14"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ec2": "^3.899.0",
+    "@aws-sdk/client-efs": "^3.899.0",
+    "@pulumi/aws": "6.50.0",
+    "@pulumi/aws-apigateway": "^3.0.0",
+    "@pulumi/azure-native": "3.8.0",
+    "@pulumi/command": "1.0.1",
+    "@pulumi/pulumi": "3.158.0",
+    "axios": "1.11.0"
+  }
+}

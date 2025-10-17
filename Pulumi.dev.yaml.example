@@ -1,0 +1,41 @@
+# Dev stack configuration for pulumi-azure-function
+
+config:
+  azure-native:location: germanywestcentral
+  dp-self-hosted-azure:codeVersion: "0.1.4"
+  dp-self-hosted-azure:customDomain: "dp-self-hosted.filedocks.com"
+
+  dp-self-hosted-azure:MAIN_DB_NAME: "ingestro"
+  dp-self-hosted-azure:LOG_DB_NAME: "logging"
+
+  dp-self-hosted-azure:USER_PLATFORM_DB_NAME: "nuvo"
+  dp-self-hosted-azure:USER_PLATFORM_DB_HOST: "mongodb://localhost:27017"
+  dp-self-hosted-azure:USER_PLATFORM_DB_USERNAME: ""
+  dp-self-hosted-azure:USER_PLATFORM_DB_PASSWORD: ""
+
+  dp-self-hosted-azure:DATA_PIPELINE_DB_NAME: "datapipeline"
+
+  dp-self-hosted-azure:DATA_PIPELINE_LOG_DB_NAME: "dp-logging"
+
+  dp-self-hosted-azure:USER_PLATFORM_LOG_DB_NAME: "nuvo-logging"
+
+  dp-self-hosted-azure:JWT_SECRET_KEY: ""
+
+  dp-self-hosted-azure:S3_CONNECTOR_SECRET_KEY: ""
+
+  dp-self-hosted-azure:HYPERFORMULA_LICENSE_KEY: "gpl-v3"
+
+  dp-self-hosted-azure:PUSHER_APP_ID: ""
+  dp-self-hosted-azure:PUSHER_KEY: ""
+  dp-self-hosted-azure:PUSHER_SECRET: ""
+
+  dp-self-hosted-azure:BREVO_API_KEY: ""
+
+  dp-self-hosted-azure:MAPPING_BASE_URL: ""
+
+  dp-self-hosted-azure:CLOUD_PROVIDER_ENVIRONMENT: "AZURE"
+  dp-self-hosted-azure:STORAGE_PROVIDER: "AZURE"
+  dp-self-hosted-azure:AZURE_ACCOUNT_NAME: ""
+  dp-self-hosted-azure:AZURE_CONNECTION_STRING: ""
+
+encryptionsalt:
