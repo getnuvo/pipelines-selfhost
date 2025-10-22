@@ -3,6 +3,7 @@ import * as aws from '@pulumi/aws';
 import * as apigateway from '@pulumi/aws-apigateway';
 import { WaitForEfsTargets } from './efs-waiting-target';
 import { LambdaEniWait } from './eip-waiting';
+import { default as axios } from 'axios';
 
 const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
@@ -11,46 +12,22 @@ let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('functionPrefix');
 
 // TODO: replace with real function list request eg. with axios from a config service
-const functionList = Promise.resolve({
-  functions: [
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/email-listener.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=e2f837c52d860bb65d45d208cc0a7253d95d602ff3e0a1b527080ba31bb5c666&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'email-listener',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/execute-fetch-input-data.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=036dcb5873f58440bb7ad492cc6689a4987720d67e8729bd678c01c4bb18f5f5&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'execute-fetch-input-data',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/execute-transform.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=9df9123daad69ada6e4f7e63a02ed3a8ff713c2448967b9081f43dd0af2fc206&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'execute-transform',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/execute-write-output-data.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=e733619e4b558a8a87f3c3db99f39fed2eb551f71bc4075e0ba74a1fbb4be54b&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'execute-write-output-data',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/execution-schedule.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=5dda2ca754bf461435043c3c7959a7803de9aedeccdd35c4daadbf3605bf2ca8&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'execution-schedule',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/fetch-input-data.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=e5c984511b0347df1538de9eb12778f5be25c44ce10ca2e5a60975a53f9aa5b0&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'fetch-input-data',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/management.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=54bae09b37ddc64931c79d11f8def231995f13874d9e8df78370766f24026987&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'management',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/session-schedule.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=c7bc9c22a383521ed26a2671603252b647cfc6feb07af586d4f0e04bfbe5587a&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'session-schedule',
-    },
-    {
-      url: 'https://test-azure-zip-bucket.s3.eu-central-1.amazonaws.com/0.3.4/aws/transform.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIASCOAPKIMLLI7VVVJ%2F20251003%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20251003T033933Z&X-Amz-Expires=43200&X-Amz-Signature=67b98af05135112683c6a5f9e91cc634acc50388a2bddf662ffd8fe675b64918&X-Amz-SignedHeaders=host&x-id=GetObject',
-      name: 'transform',
-    },
-  ],
-});
+const fetchFunctionList = async () => {
+  const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
+  const body = {
+    "version": "0.9.1",
+    "provider": "AWS",
+    "license_key": config.require("INGESTRO_LICENSE_KEY"),
+  }
+
+  try {
+    const response = await axios.post(url, body);
+    return response.data as { functions: { name: string; url: string }[] };
+  } catch (error) {
+    console.error('Error fetching function list:', error);
+    throw error;
+  }
+}
 
 const getHandler = (functionName: string) => {
   switch (functionName) {
@@ -161,7 +138,14 @@ export const initialLambdaFunctions = async () => {
   let emailListenerFunction: aws.lambda.Function | undefined;
   const createdFunctions: aws.lambda.Function[] = [];
 
-  const functionUrls = (await functionList).functions;
+  // const functionUrls = (await fetchFunctionList()).functions;
+  let functionUrls: { name: string; url: string }[];
+  try {
+    functionUrls = (await fetchFunctionList()).functions;
+  } catch (e) {
+    throw new Error('Unauthorized: unable to retrieve the function list');
+  }
+
   const defaultVpc = pulumi.output(aws.ec2.getVpc({ default: true }));
   const defaultSubnetIds = defaultVpc.id.apply((vpcId) =>
     aws.ec2.getSubnets({
@@ -185,11 +169,11 @@ export const initialLambdaFunctions = async () => {
   });
 
   // --------------------- EFS Setup ---------------------
-  // TODO Improve this issue -> Please wait for them to become available and try the request again.
+  // Enhanced EFS setup with proper mount target availability waiting
   // EFS Security Group (created before mount targets)
-  const efsSg = new aws.ec2.SecurityGroup('efs-sg', {
+  const efsSg = new aws.ec2.SecurityGroup(`${functionPrefix}-efs-sg`, {
     vpcId: defaultVpc.id,
-    description: 'Allow all outbound traffic for Lambda',
+    description: 'EFS Security Group - Allow NFS traffic from Lambda functions',
     egress: [
       {
         fromPort: 0,
@@ -203,13 +187,31 @@ export const initialLambdaFunctions = async () => {
         fromPort: 2049,
         toPort: 2049,
         protocol: 'tcp',
-        cidrBlocks: [defaultVpc.apply((vpc) => vpc.cidrBlock)],
+        securityGroups: [lambdaSg.id], // Allow Lambda security group
+      },
+      {
+        fromPort: 2049,
+        toPort: 2049,
+        protocol: 'tcp',
+        cidrBlocks: [defaultVpc.apply((vpc) => vpc.cidrBlock)], // Allow VPC CIDR
       },
     ],
+    tags: {
+      Name: `${functionPrefix}-efs-security-group`,
+      Application: 'pipelines-selfhost',
+    },
   });
 
   const efs = new aws.efs.FileSystem(`${functionPrefix}-lambda-efs`, {
-    tags: { Application: 'example' },
+    creationToken: `${functionPrefix}-lambda-efs-token`,
+    performanceMode: 'generalPurpose',
+    throughputMode: 'provisioned',
+    provisionedThroughputInMibps: 100,
+    encrypted: true,
+    tags: {
+      Name: `${functionPrefix}-lambda-efs`,
+      Application: 'pipelines-selfhost',
+    },
   });
 
   const efsMountTargets: aws.efs.MountTarget[] = [];
@@ -228,10 +230,11 @@ export const initialLambdaFunctions = async () => {
   );
 
   const waiter = new WaitForEfsTargets(
-    'efs-wait',
+    `${functionPrefix}-efs-wait`,
     {
       fileSystemId: efs.id,
       region: aws.config.region,
+      timeoutSeconds: 600, // 10 minutes timeout for mount targets to become available
     },
     { dependsOn: efsMountTargets },
   );
@@ -299,6 +302,9 @@ export const initialLambdaFunctions = async () => {
     policyArn: lambdaEfsPolicy.arn,
   });
 
+  // Wait for all EFS-dependent resources to be ready before creating Lambda functions
+  console.log('🔄 Ensuring EFS is fully ready before creating Lambda functions...');
+
   for (let i = 0; i < functionUrls.length; i++) {
     const loggingService = new aws.cloudwatch.LogGroup(
       `${functionPrefix}-${functionUrls[i].name}-log`,
@@ -312,7 +318,7 @@ export const initialLambdaFunctions = async () => {
     );
 
     const functionName = `${functionPrefix}-${functionUrls[i].name}`;
-    // Mount EFS only for email-listener and execute-fetch-input-data
+    // Mount EFS only for specific functions that need shared storage
     const shouldMountEfs = [
       'management',
       'transform',
@@ -320,6 +326,8 @@ export const initialLambdaFunctions = async () => {
       'execute-transform',
       'fetch-input-data',
     ].includes(functionUrls[i].name);
+
+    console.log(`📦 Creating Lambda function: ${functionName} (EFS: ${shouldMountEfs ? 'Yes' : 'No'})`);
     const fn = new aws.lambda.Function(
       functionName,
       {
@@ -383,15 +391,17 @@ export const initialLambdaFunctions = async () => {
         },
         ...(shouldMountEfs
           ? {
-              fileSystemConfig: {
-                arn: efsAccessPoint.arn,
-                localMountPath: '/mnt/hyperformula-column',
-              },
-            }
+            fileSystemConfig: {
+              arn: efsAccessPoint.arn,
+              localMountPath: '/mnt/hyperformula-column',
+            },
+          }
           : {}),
       },
       {
-        dependsOn: [loggingService, efsAccessPoint, waiter],
+        dependsOn: shouldMountEfs
+          ? [loggingService, efsAccessPoint, waiter]
+          : [loggingService],
       },
     );
 

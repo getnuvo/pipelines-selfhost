@@ -3,7 +3,6 @@ import {
   EC2Client,
   DescribeNetworkInterfacesCommand,
 } from '@aws-sdk/client-ec2';
-import e = require('cors');
 
 class LambdaEniWaitProvider implements pulumi.dynamic.ResourceProvider {
   async create(inputs: any): Promise<pulumi.dynamic.CreateResult> {

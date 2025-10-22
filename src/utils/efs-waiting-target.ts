@@ -12,6 +12,7 @@ class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
     const fileSystemId = inputs.fileSystemId;
     const region = inputs.region || process.env.AWS_REGION || 'us-east-1';
     const timeout = (inputs.timeoutSeconds || 300) * 1000;
+    const stabilizationMs = ((inputs.stabilizationSeconds ?? 30) as number) * 1000;
 
     const client = new EFSClient({ region });
 
@@ -34,7 +35,9 @@ class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
       );
 
       if (allAvailable) {
-        console.log('✅ All EFS mount targets are available.');
+        console.log(`✅ All EFS mount targets are available. Adding ${stabilizationMs / 1000}s buffer...`);
+        await new Promise((res) => setTimeout(res, stabilizationMs));
+        console.log('✅ EFS mount targets fully ready for Lambda functions.');
         break;
       }
 
