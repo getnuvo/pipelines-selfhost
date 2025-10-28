@@ -105,9 +105,7 @@ export const initialScheduleService = async () => {
 
   // NOTE: trigger functions are invoked by EventBridge rules, cannot be part of data pipeline directly
   scheduleFunctions.forEach((fn, idx) => {
-    console.log('Scheduling function:', fn.name);
-    // Stable unique logical + AWS name
-    const resourceName = `${functionPrefix}-schedule-${fn.name}-${idx}`;
+    const resourceName = `${functionPrefix}-schedule-${idx}`;
     const scheduleName = pulumi.interpolate`${functionPrefix}-${fn.name}-every-5m`;
 
     new aws.scheduler.Schedule(resourceName, {
@@ -138,7 +136,6 @@ export const initialLambdaFunctions = async () => {
   let emailListenerFunction: aws.lambda.Function | undefined;
   const createdFunctions: aws.lambda.Function[] = [];
 
-  // const functionUrls = (await fetchFunctionList()).functions;
   let functionUrls: { name: string; url: string }[];
   try {
     functionUrls = (await fetchFunctionList()).functions;
@@ -234,7 +231,8 @@ export const initialLambdaFunctions = async () => {
     {
       fileSystemId: efs.id,
       region: aws.config.region,
-      timeoutSeconds: 600, // 10 minutes timeout for mount targets to become available
+      timeoutSeconds: 600,
+      stabilizationSeconds: 120,
     },
     { dependsOn: efsMountTargets },
   );
@@ -257,6 +255,18 @@ export const initialLambdaFunctions = async () => {
       },
     },
     { dependsOn: waiter },
+  );
+
+  // Additional wait after access point is created to ensure Lambda can use it
+  const accessPointWaiter = new WaitForEfsTargets(
+    `${functionPrefix}-access-point-wait`,
+    {
+      fileSystemId: efs.id,
+      region: aws.config.region,
+      timeoutSeconds: 300,
+      stabilizationSeconds: 60, 
+    },
+    { dependsOn: [efsAccessPoint, waiter] },
   );
   // --------------------- End EFS Setup ---------------------
 
@@ -400,7 +410,7 @@ export const initialLambdaFunctions = async () => {
       },
       {
         dependsOn: shouldMountEfs
-          ? [loggingService, efsAccessPoint, waiter]
+          ? [loggingService, efsAccessPoint, waiter, accessPointWaiter]
           : [loggingService],
       },
     );
@@ -426,7 +436,7 @@ export const initialLambdaFunctions = async () => {
     const s3Bucket = aws.s3.Bucket.get('trigger-bucket', s3BucketName);
 
     // Permission for S3 to invoke Lambda
-    new aws.lambda.Permission('email-listener-s3-permission', {
+    const s3Permission = new aws.lambda.Permission('email-listener-s3-permission', {
       action: 'lambda:InvokeFunction',
       function: emailListenerFunction.name,
       principal: 's3.amazonaws.com',
@@ -443,7 +453,7 @@ export const initialLambdaFunctions = async () => {
           filterPrefix: 'emails/',
         },
       ],
-    });
+    }, { dependsOn: [s3Permission] });
   }
 
   // ------------- SETUP EIP FOR LAMBDA -------------

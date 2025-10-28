@@ -5,6 +5,7 @@ interface IWaitForEfsInputs {
   fileSystemId: pulumi.Input<string>;
   region?: pulumi.Input<string>;
   timeoutSeconds?: pulumi.Input<number>;
+  stabilizationSeconds?: pulumi.Input<number>;
 }
 
 class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
