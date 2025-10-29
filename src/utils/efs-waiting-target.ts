@@ -14,14 +14,11 @@ class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
     const region = inputs.region || process.env.AWS_REGION || 'us-east-1';
     const timeout = (inputs.timeoutSeconds || 300) * 1000;
     const stabilizationMs = ((inputs.stabilizationSeconds ?? 30) as number) * 1000;
-    const config = new pulumi.Config();
-    const accessKeyId = config.get('AWS_ACCESS_KEY') || '';
-    const secretAccessKey = config.get('AWS_SECRET_KEY') || '';
 
-    const client = new EFSClient({ region, credentials: {
-      accessKeyId: accessKeyId,
-      secretAccessKey: secretAccessKey,
-      } });
+    const config = new pulumi.Config('aws');
+    const awsProfile = config.get('profile') || process.env.AWS_PROFILE;
+
+    const client = new EFSClient({ region, profile: awsProfile });
 
     const start = Date.now();
 
