@@ -10,7 +10,7 @@ export let dnsRecord: any | undefined;
 
 export const run = async () => {
   const config = new pulumi.Config();
-  const prefix = config.get('docdbNamePrefix') || 'docdb';
+  const prefix = config.get('prefix') || 'docdb';
   const masterUsername = config.get('docdbUsername') || 'master';
   const masterPassword = config.get('docdbPassword'); // secret required
   const instanceClass = config.get('docdbInstanceClass') || 'db.t3.medium';
@@ -51,114 +51,114 @@ export const run = async () => {
     tags: { Name: `${prefix}-sg` },
   });
 
-  // // Subnet group (use all default VPC subnets to span AZs)
-  // const subnetGroup = new aws.docdb.SubnetGroup(`${prefix}-subnet-group`, {
-  //   subnetIds: defaultSubnetIds,
-  //   tags: { Name: `${prefix}-subnet-group` },
-  // });
+  // Subnet group (use all default VPC subnets to span AZs)
+  const subnetGroup = new aws.docdb.SubnetGroup(`${prefix}-subnet-group`, {
+    subnetIds: defaultSubnetIds,
+    tags: { Name: `${prefix}-subnet-group` },
+  });
 
-  // // Parameter group
-  // const paramGroup = new aws.docdb.ClusterParameterGroup(
-  //   `${prefix}-param-group`,
-  //   {
-  //     family: 'docdb5.0',
-  //     parameters: [{ name: 'tls', value: 'enabled' }],
-  //     description: 'Custom parameter group for DocumentDB',
-  //   },
-  // );
+  // Parameter group
+  const paramGroup = new aws.docdb.ClusterParameterGroup(
+    `${prefix}-param-group`,
+    {
+      family: 'docdb5.0',
+      parameters: [{ name: 'tls', value: 'enabled' }],
+      description: 'Custom parameter group for DocumentDB',
+    },
+  );
 
-  // // Cluster
-  // const cluster = new aws.docdb.Cluster(`${prefix}-cluster`, {
-  //   engine: 'docdb',
-  //   engineVersion: engineVersion,
-  //   masterUsername: masterUsername,
-  //   masterPassword: masterPassword,
-  //   dbSubnetGroupName: subnetGroup.name,
-  //   vpcSecurityGroupIds: [sg.id],
-  //   storageEncrypted: true,
-  //   backupRetentionPeriod: backupRetentionDays, // updated to 7 days (configurable)
-  //   preferredBackupWindow: '07:00-09:00',
-  //   preferredMaintenanceWindow: 'sun:04:00-sun:06:00',
-  //   clusterIdentifier: `${prefix}-cluster`,
-  //   applyImmediately: true,
-  //   port: 27017,
-  //   skipFinalSnapshot: true,
-  //   dbClusterParameterGroupName: paramGroup.name,
-  //   tags: { Name: `${prefix}-cluster` },
-  // });
+  // Cluster
+  const cluster = new aws.docdb.Cluster(`${prefix}-cluster`, {
+    engine: 'docdb',
+    engineVersion: engineVersion,
+    masterUsername: masterUsername,
+    masterPassword: masterPassword,
+    dbSubnetGroupName: subnetGroup.name,
+    vpcSecurityGroupIds: [sg.id],
+    storageEncrypted: true,
+    backupRetentionPeriod: backupRetentionDays, // updated to 7 days (configurable)
+    preferredBackupWindow: '07:00-09:00',
+    preferredMaintenanceWindow: 'sun:04:00-sun:06:00',
+    clusterIdentifier: `${prefix}-cluster`,
+    applyImmediately: true,
+    port: 27017,
+    skipFinalSnapshot: true,
+    dbClusterParameterGroupName: paramGroup.name,
+    tags: { Name: `${prefix}-cluster` },
+  });
 
-  // // Instance
-  // new aws.docdb.ClusterInstance(`${prefix}-instance-1`, {
-  //   clusterIdentifier: cluster.id,
-  //   instanceClass: instanceClass,
-  //   applyImmediately: true,
-  //   engine: 'docdb',
-  //   identifier: `${prefix}-instance-1`,
-  // });
+  // Instance
+  new aws.docdb.ClusterInstance(`${prefix}-instance-1`, {
+    clusterIdentifier: cluster.id,
+    instanceClass: instanceClass,
+    applyImmediately: true,
+    engine: 'docdb',
+    identifier: `${prefix}-instance-1`,
+  });
 
-  // // ---------------- AWS BACKUP (Daily, 7-day retention) ----------------
-  // // IAM Role for AWS Backup service
-  // const backupRole = new aws.iam.Role(`${prefix}-backup-role`, {
-  //   assumeRolePolicy: JSON.stringify({
-  //     Version: '2012-10-17',
-  //     Statement: [
-  //       {
-  //         Effect: 'Allow',
-  //         Principal: { Service: 'backup.amazonaws.com' },
-  //         Action: 'sts:AssumeRole',
-  //       },
-  //     ],
-  //   }),
-  //   tags: { Name: `${prefix}-backup-role` },
-  // });
+  // ---------------- AWS BACKUP (Daily, 7-day retention) ----------------
+  // IAM Role for AWS Backup service
+  const backupRole = new aws.iam.Role(`${prefix}-backup-role`, {
+    assumeRolePolicy: JSON.stringify({
+      Version: '2012-10-17',
+      Statement: [
+        {
+          Effect: 'Allow',
+          Principal: { Service: 'backup.amazonaws.com' },
+          Action: 'sts:AssumeRole',
+        },
+      ],
+    }),
+    tags: { Name: `${prefix}-backup-role` },
+  });
 
-  // // Attach AWS managed policies needed for backup (and optional restore)
-  // new aws.iam.RolePolicyAttachment(`${prefix}-backup-role-backup`, {
-  //   role: backupRole.name,
-  //   policyArn:
-  //     'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
-  // });
-  // new aws.iam.RolePolicyAttachment(`${prefix}-backup-role-restore`, {
-  //   role: backupRole.name,
-  //   policyArn:
-  //     'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores',
-  // });
+  // Attach AWS managed policies needed for backup (and optional restore)
+  new aws.iam.RolePolicyAttachment(`${prefix}-backup-role-backup`, {
+    role: backupRole.name,
+    policyArn:
+      'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup',
+  });
+  new aws.iam.RolePolicyAttachment(`${prefix}-backup-role-restore`, {
+    role: backupRole.name,
+    policyArn:
+      'arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores',
+  });
 
-  // // Backup vault
-  // const backupVault = new aws.backup.Vault(`${prefix}-backup-vault`, {
-  //   tags: { Name: `${prefix}-backup-vault` },
-  // });
+  // Backup vault
+  const backupVault = new aws.backup.Vault(`${prefix}-backup-vault`, {
+    tags: { Name: `${prefix}-backup-vault` },
+  });
 
-  // // Backup plan (daily schedule, 7 day retention configurable)
-  // const backupPlan = new aws.backup.Plan(`${prefix}-backup-plan`, {
-  //   rules: [
-  //     {
-  //       ruleName: `${prefix}-daily-backup`,
-  //       targetVaultName: backupVault.name,
-  //       schedule: backupCron, // daily cron
-  //       lifecycle: {
-  //         deleteAfter: backupRetentionDays,
-  //       },
-  //     },
-  //   ],
-  //   tags: { Name: `${prefix}-backup-plan` },
-  // });
+  // Backup plan (daily schedule, 7 day retention configurable)
+  const backupPlan = new aws.backup.Plan(`${prefix}-backup-plan`, {
+    rules: [
+      {
+        ruleName: `${prefix}-daily-backup`,
+        targetVaultName: backupVault.name,
+        schedule: backupCron, // daily cron
+        lifecycle: {
+          deleteAfter: backupRetentionDays,
+        },
+      },
+    ],
+    tags: { Name: `${prefix}-backup-plan` },
+  });
 
-  // // Selection adding the DocumentDB cluster
-  // new aws.backup.Selection(
-  //   `${prefix}-backup-selection`,
-  //   {
-  //     iamRoleArn: backupRole.arn,
-  //     planId: backupPlan.id,
-  //     resources: [cluster.arn],
-  //   },
-  //   { dependsOn: [cluster] },
-  // );
+  // Selection adding the DocumentDB cluster
+  new aws.backup.Selection(
+    `${prefix}-backup-selection`,
+    {
+      iamRoleArn: backupRole.arn,
+      planId: backupPlan.id,
+      resources: [cluster.arn],
+    },
+    { dependsOn: [cluster] },
+  );
 
-  // // Assign outputs
-  // docdbEndpoint = cluster.endpoint;
-  // docdbReaderEndpoint = cluster.readerEndpoint;
-  // docdbConnectionString = pulumi.interpolate`mongodb://${masterUsername}:${masterPassword}@${cluster.endpoint}:27017/?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`;
+  // Assign outputs
+  docdbEndpoint = cluster.endpoint;
+  docdbReaderEndpoint = cluster.readerEndpoint;
+  docdbConnectionString = pulumi.interpolate`mongodb://${masterUsername}:${masterPassword}@${cluster.endpoint}:27017/?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`;
 
   // const assetBucketName =
   //   config.get('assetBucketName') || 'dp-self-hosted-assets';
@@ -250,5 +250,5 @@ export const run = async () => {
   //   },
   // };
 
-  await initialLambdaFunctions();
+  await initialLambdaFunctions(docdbConnectionString);
 };

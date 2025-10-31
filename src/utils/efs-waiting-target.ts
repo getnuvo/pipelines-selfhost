@@ -15,7 +15,10 @@ class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
     const timeout = (inputs.timeoutSeconds || 300) * 1000;
     const stabilizationMs = ((inputs.stabilizationSeconds ?? 30) as number) * 1000;
 
-    const client = new EFSClient({ region });
+    const config = new pulumi.Config('aws');
+    const awsProfile = config.get('profile') || process.env.AWS_PROFILE;
+
+    const client = new EFSClient({ region, profile: awsProfile });
 
     const start = Date.now();
 

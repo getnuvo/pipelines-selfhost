@@ -4,30 +4,35 @@ import * as apigateway from '@pulumi/aws-apigateway';
 import { WaitForEfsTargets } from './efs-waiting-target';
 import { LambdaEniWait } from './eip-waiting';
 import { default as axios } from 'axios';
+import { initialMappingModule } from './mapping.deployment';
 
 const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
-const functionPrefix = config.require('functionPrefix');
+const functionPrefix = config.require('prefix');
+let dockerToken = config.get('dockerHubAccessToken') || '';
 
-// TODO: replace with real function list request eg. with axios from a config service
 const fetchFunctionList = async () => {
   const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
   const body = {
-    "version": "0.9.1",
-    "provider": "AWS",
-    "license_key": config.require("INGESTRO_LICENSE_KEY"),
-  }
+    version: '0.26.1',
+    provider: 'AWS',
+    license_key: config.require('INGESTRO_LICENSE_KEY'),
+  };
 
   try {
     const response = await axios.post(url, body);
-    return response.data as { functions: { name: string; url: string }[] };
+    dockerToken = response.data.docker_key;
+    return response.data as {
+      functions: { name: string; url: string }[];
+      docker_key: string;
+    };
   } catch (error) {
     console.error('Error fetching function list:', error);
     throw error;
   }
-}
+};
 
 const getHandler = (functionName: string) => {
   switch (functionName) {
@@ -53,7 +58,7 @@ const getHandler = (functionName: string) => {
 };
 
 const initialAPIGateway = async (managementFunction: any) => {
-  const endpoint = await new apigateway.RestAPI('dp-self-hosted-management', {
+  const endpoint = new apigateway.RestAPI('dp-self-hosted-management', {
     routes: [
       {
         path: '{route+}',
@@ -62,8 +67,7 @@ const initialAPIGateway = async (managementFunction: any) => {
       },
     ],
     stageName: 'develop',
-  });
-  await endpoint.deployment;
+  }, { dependsOn: [managementFunction] });
 
   endpoint.url.apply((url) => {
     console.log('API Gateway endpoint URL:', url);
@@ -131,7 +135,9 @@ export const initialScheduleService = async () => {
  * @returns void
  * Main function to initialize all Lambda functions, API Gateway, and Schedule service
  */
-export const initialLambdaFunctions = async () => {
+export const initialLambdaFunctions = async (
+  databaseUrl: pulumi.Output<string>,
+) => {
   let managementFunction;
   let emailListenerFunction: aws.lambda.Function | undefined;
   const createdFunctions: aws.lambda.Function[] = [];
@@ -142,6 +148,7 @@ export const initialLambdaFunctions = async () => {
   } catch (e) {
     throw new Error('Unauthorized: unable to retrieve the function list');
   }
+  const mappingModuleUrl = await initialMappingModule(dockerToken);
 
   const defaultVpc = pulumi.output(aws.ec2.getVpc({ default: true }));
   const defaultSubnetIds = defaultVpc.id.apply((vpcId) =>
@@ -264,7 +271,7 @@ export const initialLambdaFunctions = async () => {
       fileSystemId: efs.id,
       region: aws.config.region,
       timeoutSeconds: 300,
-      stabilizationSeconds: 60, 
+      stabilizationSeconds: 60,
     },
     { dependsOn: [efsAccessPoint, waiter] },
   );
@@ -319,11 +326,7 @@ export const initialLambdaFunctions = async () => {
     const loggingService = new aws.cloudwatch.LogGroup(
       `${functionPrefix}-${functionUrls[i].name}-log`,
       {
-        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`,
-        retentionInDays: 14,
-        tags: {
-          Application: 'example',
-        },
+        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`
       },
     );
 
@@ -337,7 +340,9 @@ export const initialLambdaFunctions = async () => {
       'fetch-input-data',
     ].includes(functionUrls[i].name);
 
-    console.log(`📦 Creating Lambda function: ${functionName} (EFS: ${shouldMountEfs ? 'Yes' : 'No'})`);
+    console.log(
+      `📦 Creating Lambda function: ${functionName} (EFS: ${shouldMountEfs ? 'Yes' : 'No'})`,
+    );
     const fn = new aws.lambda.Function(
       functionName,
       {
@@ -355,9 +360,7 @@ export const initialLambdaFunctions = async () => {
           mode: 'Active',
         },
         loggingConfig: {
-          logFormat: 'JSON',
-          applicationLogLevel: 'INFO',
-          systemLogLevel: 'WARN',
+          logFormat: 'Text',
         },
         vpcConfig: {
           subnetIds: defaultSubnetIds.ids,
@@ -365,47 +368,33 @@ export const initialLambdaFunctions = async () => {
         },
         environment: {
           variables: {
-            JWT_SECRET_KEY: config.require('JWT_SECRET_KEY'),
-            USER_PLATFORM_DB_NAME: config.require('USER_PLATFORM_DB_NAME'),
+            DATA_PIPELINE_DB_URI: databaseUrl,
             DATA_PIPELINE_DB_NAME: config.require('DATA_PIPELINE_DB_NAME'),
-            DATA_PIPELINE_LOG_DB_NAME: config.require(
-              'DATA_PIPELINE_LOG_DB_NAME',
-            ),
-            USER_PLATFORM_DB_HOST: config.require('USER_PLATFORM_DB_HOST'),
-            USER_PLATFORM_DB_USERNAME: config.require(
-              'USER_PLATFORM_DB_USERNAME',
-            ),
-            USER_PLATFORM_DB_PASSWORD: config.require(
-              'USER_PLATFORM_DB_PASSWORD',
-            ),
             S3_CONNECTOR_SECRET_KEY: config.require('S3_CONNECTOR_SECRET_KEY'),
-            AWS_STORAGE_REGION: config.require('AWS_REGION'),
-            AWS_STORAGE_KEY: config.require('AWS_ACCESS_KEY'),
-            AWS_STORAGE_HASH: config.require('AWS_SECRET_KEY'),
+            AWS_PROVIDER_REGION: config.require('AWS_REGION'),
+            AWS_PROVIDER_KEY: config.require('AWS_ACCESS_KEY'),
+            AWS_PROVIDER_SECRET: config.require('AWS_SECRET_KEY'),
             AWS_S3_BUCKET: config.require('AWS_S3_BUCKET'),
-            HYPERFORMULA_LICENSE_KEY: config.require(
-              'HYPERFORMULA_LICENSE_KEY',
-            ),
-            PUSHER_APP_ID: config.require('PUSHER_APP_ID'),
-            PUSHER_KEY: config.require('PUSHER_KEY'),
-            PUSHER_SECRET: config.require('PUSHER_SECRET'),
+            PUSHER_APP_ID: config.get('PUSHER_APP_ID') || '',
+            PUSHER_KEY: config.get('PUSHER_KEY') || '',
+            PUSHER_SECRET: config.get('PUSHER_SECRET') || '',
             SERVERLESS_TRANSFORM_FUNCTION_NAME: `${functionPrefix}-transform`,
             SERVERLESS_EXECUTE_FETCH_INPUT_DATA_FUNCTION_NAME: `${functionPrefix}-execute-fetch-input-data`,
             SERVERLESS_EXECUTE_TRANSFORM_FUNCTION_NAME: `${functionPrefix}-execute-transform`,
             SERVERLESS_FETCH_INPUT_DATA_FUNCTION_NAME: `${functionPrefix}-fetch-input-data`,
             SERVERLESS_EXECUTE_WRITE_OUTPUT_DATA_FUNCTION_NAME: `${functionPrefix}-execute-write-output-data`,
             BREVO_API_KEY: config.require('BREVO_API_KEY'),
-            MAPPING_BASE_URL: config.require('MAPPING_BASE_URL'),
-            DATA_PIPELINE_DB_URI: config.require('DATA_PIPELINE_DB_URI'),
+            MAPPING_BASE_URL: mappingModuleUrl,
+            DP_LICENSE_KEY: config.require('INGESTRO_LICENSE_KEY'),
           },
         },
         ...(shouldMountEfs
           ? {
-            fileSystemConfig: {
-              arn: efsAccessPoint.arn,
-              localMountPath: '/mnt/hyperformula-column',
-            },
-          }
+              fileSystemConfig: {
+                arn: efsAccessPoint.arn,
+                localMountPath: '/mnt/hyperformula-column',
+              },
+            }
           : {}),
       },
       {

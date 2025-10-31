@@ -1,7 +1,16 @@
 # Dev stack configuration for pulumi-azure-function
 
+# (Optional) Provide an encryptionsalt here if you want deterministic secret encryption across environments.
+encryptionsalt: v1:XXXXXXXXXXXXXXXXXX
+
 config:
+  # Azure location (used by other azure-native resources in this project)
   azure-native:location: germanywestcentral
+
+  # AWS provider settings required for mapping module (EC2, IAM, etc.)
+  aws:region: eu-central-1
+  # aws:profile: default  # uncomment & change if you use a named profile
+
   dp-self-hosted-azure:codeVersion: "0.1.4"
   dp-self-hosted-azure:customDomain: "dp-self-hosted.filedocks.com"
 
@@ -14,15 +23,11 @@ config:
   dp-self-hosted-azure:USER_PLATFORM_DB_PASSWORD: ""
 
   dp-self-hosted-azure:DATA_PIPELINE_DB_NAME: "datapipeline"
-
   dp-self-hosted-azure:DATA_PIPELINE_LOG_DB_NAME: "dp-logging"
-
   dp-self-hosted-azure:USER_PLATFORM_LOG_DB_NAME: "nuvo-logging"
 
   dp-self-hosted-azure:JWT_SECRET_KEY: ""
-
   dp-self-hosted-azure:S3_CONNECTOR_SECRET_KEY: ""
-
   dp-self-hosted-azure:HYPERFORMULA_LICENSE_KEY: "gpl-v3"
 
   dp-self-hosted-azure:PUSHER_APP_ID: ""
@@ -30,7 +35,6 @@ config:
   dp-self-hosted-azure:PUSHER_SECRET: ""
 
   dp-self-hosted-azure:BREVO_API_KEY: ""
-
   dp-self-hosted-azure:MAPPING_BASE_URL: ""
 
   dp-self-hosted-azure:CLOUD_PROVIDER_ENVIRONMENT: "AZURE"
@@ -38,4 +42,33 @@ config:
   dp-self-hosted-azure:AZURE_ACCOUNT_NAME: ""
   dp-self-hosted-azure:AZURE_CONNECTION_STRING: ""
 
-encryptionsalt:
+  # ------------------------------------------------------------
+  # Mapping Module base settings (required by mapping.deployment.ts)
+  # ------------------------------------------------------------
+  dp-self-hosted-azure:functionPrefix: "mapping-dev"            # REQUIRED - used for naming AWS resources
+  dp-self-hosted-azure:dockerImageName: "getnuvo/mapping:latest" # Docker image reference
+  dp-self-hosted-azure:dockerHubUsername: "getnuvo"              # Docker Hub username (omit if using ECR)
+  dp-self-hosted-azure:ec2InstanceType: "t3.large"               # EC2 instance type
+  dp-self-hosted-azure:rootVolumeSize: 30                        # Root volume size (GiB)
+
+  # LLM provider selection and parameters
+  dp-self-hosted-azure:mappingLlmProvider: "AZURE"               # AZURE | BEDROCK
+  dp-self-hosted-azure:mappingLlmTemperature: 0                  # Numeric; use --path when setting via CLI
+
+  # Azure OpenAI settings (if provider = AZURE)
+  dp-self-hosted-azure:mappingAzureOpenaiApiKey: ""              # --secret recommended
+  dp-self-hosted-azure:mappingAzureOpenaiEndpoint: ""           # https://<your-endpoint>.openai.azure.com
+  dp-self-hosted-azure:mappingAzureOpenaiApiVersion: "2024-10-21"
+  dp-self-hosted-azure:mappingAzureOpenaiDeploymentName: "gpt-4o-mini"
+
+  # AWS Bedrock settings (if provider = BEDROCK)
+  dp-self-hosted-azure:mappingAwsBedrockModelId: "anthropic.claude-3-haiku-20240307-v1:0"
+  dp-self-hosted-azure:mappingAwsBedrockAccessKeyId: ""          # --secret recommended
+  dp-self-hosted-azure:mappingAwsBedrockSecretAccessKey: ""      # --secret recommended
+  dp-self-hosted-azure:mappingAwsBedrockRegion: ""               # e.g. us-east-1
+
+  # S3 access (if storing pipeline artifacts in S3)
+  dp-self-hosted-azure:mappingS3Region: ""
+  dp-self-hosted-azure:mappingS3AccessKeyId: ""                 # --secret recommended
+  dp-self-hosted-azure:mappingS3SecretAccessKey: ""             # --secret recommended
+  dp-self-hosted-azure:mappingBucketNamePipeline: ""

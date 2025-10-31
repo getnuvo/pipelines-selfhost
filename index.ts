@@ -12,9 +12,3 @@ if (provider === 'aws') {
 } else {
   throw new Error(`Unknown provider: ${provider}`);
 }
-
-export const docdbEndpoint = awsMod.docdbEndpoint;
-export const docdbReaderEndpoint = awsMod.docdbReaderEndpoint;
-export const docdbConnectionString = awsMod.docdbConnectionString;
-
-export const dnsRecord = awsMod.dnsRecord;
