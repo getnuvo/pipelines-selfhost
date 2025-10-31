@@ -1,7 +1,7 @@
 # Dev stack configuration for pulumi-azure-function
 
 # (Optional) Provide an encryptionsalt here if you want deterministic secret encryption across environments.
-# encryptionsalt: v1:XXXXXXXXXXXXXXXXXX
+encryptionsalt: v1:XXXXXXXXXXXXXXXXXX
 
 config:
   # Azure location (used by other azure-native resources in this project)
@@ -72,5 +72,3 @@ config:
   dp-self-hosted-azure:mappingS3AccessKeyId: ""                 # --secret recommended
   dp-self-hosted-azure:mappingS3SecretAccessKey: ""             # --secret recommended
   dp-self-hosted-azure:mappingBucketNamePipeline: ""
-
-encryptionsalt: # (leave blank for example; Pulumi will generate when stack is created)

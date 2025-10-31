@@ -10,13 +10,13 @@ const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
-const functionPrefix = config.require('functionPrefix');
+const functionPrefix = config.require('prefix');
 let dockerToken = config.get('dockerHubAccessToken') || '';
 
 const fetchFunctionList = async () => {
   const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
   const body = {
-    version: '0.21.5',
+    version: '0.26.1',
     provider: 'AWS',
     license_key: config.require('INGESTRO_LICENSE_KEY'),
   };
@@ -326,11 +326,7 @@ export const initialLambdaFunctions = async (
     const loggingService = new aws.cloudwatch.LogGroup(
       `${functionPrefix}-${functionUrls[i].name}-log`,
       {
-        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`,
-        retentionInDays: 14,
-        tags: {
-          Application: 'example',
-        },
+        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`
       },
     );
 
@@ -364,9 +360,7 @@ export const initialLambdaFunctions = async (
           mode: 'Active',
         },
         loggingConfig: {
-          logFormat: 'JSON',
-          applicationLogLevel: 'INFO',
-          systemLogLevel: 'WARN',
+          logFormat: 'Text',
         },
         vpcConfig: {
           subnetIds: defaultSubnetIds.ids,
@@ -391,6 +385,7 @@ export const initialLambdaFunctions = async (
             SERVERLESS_EXECUTE_WRITE_OUTPUT_DATA_FUNCTION_NAME: `${functionPrefix}-execute-write-output-data`,
             BREVO_API_KEY: config.require('BREVO_API_KEY'),
             MAPPING_BASE_URL: mappingModuleUrl,
+            DP_LICENSE_KEY: config.require('INGESTRO_LICENSE_KEY'),
           },
         },
         ...(shouldMountEfs

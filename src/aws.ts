@@ -10,7 +10,7 @@ export let dnsRecord: any | undefined;
 
 export const run = async () => {
   const config = new pulumi.Config();
-  const prefix = config.get('docdbNamePrefix') || 'docdb';
+  const prefix = config.get('prefix') || 'docdb';
   const masterUsername = config.get('docdbUsername') || 'master';
   const masterPassword = config.get('docdbPassword'); // secret required
   const instanceClass = config.get('docdbInstanceClass') || 'db.t3.medium';

@@ -2,7 +2,7 @@ import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
 
 const config = new pulumi.Config();
-const functionPrefix = config.require('functionPrefix');
+const functionPrefix = config.require('prefix');
 const dockerImageName =
   config.get('dockerImageName') || 'getnuvo/mapping:latest'; // e.g. dockerhub repo/image:tag
 const dockerHubUsername = config.get('dockerHubUsername') || 'getnuvo';
@@ -159,20 +159,20 @@ services:
     environment:
       - NODE_ENV=production
       - MAPPING_PORT=8000
-      - MAPPING_LLM_PROVIDER="${q(mappingLlmProvider)}"
+      - MAPPING_LLM_PROVIDER=${q(mappingLlmProvider)}
       - MAPPING_LLM_TEMPERATURE=${mappingLlmTemperature}
-      - MAPPING_AZURE_OPENAI_API_KEY="${q(mappingAzureOpenaiApiKey)}"
-      - MAPPING_AZURE_OPENAI_ENDPOINT="${q(mappingAzureOpenaiEndpoint)}"
-      - MAPPING_AZURE_OPENAI_API_VERSION="${q(mappingAzureOpenaiApiVersion)}"
-      - MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME="${q(mappingAzureOpenaiDeploymentName)}"
-      - MAPPING_AWS_BEDROCK_MODEL_ID="${q(mappingAwsBedrockModelId)}"
-      - MAPPING_AWS_BEDROCK_ACCESS_KEY_ID="${q(mappingAwsBedrockAccessKeyId)}"
-      - MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY="${q(mappingAwsBedrockSecretAccessKey)}"
-      - MAPPING_AWS_BEDROCK_REGION="${q(mappingAwsBedrockRegion)}"
-      - MAPPING_S3_REGION="${q(mappingS3Region)}"
-      - MAPPING_S3_ACCESS_KEY_ID="${q(mappingS3AccessKeyId)}"
-      - MAPPING_S3_SECRET_ACCESS_KEY="${q(mappingS3SecretAccessKey)}"
-      - MAPPING_BUCKET_NAME_PIPELINE="${q(mappingBucketNamePipeline)}"
+      - MAPPING_AZURE_OPENAI_API_KEY=${q(mappingAzureOpenaiApiKey)}
+      - MAPPING_AZURE_OPENAI_ENDPOINT=${q(mappingAzureOpenaiEndpoint)}
+      - MAPPING_AZURE_OPENAI_API_VERSION=${q(mappingAzureOpenaiApiVersion)}
+      - MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME=${q(mappingAzureOpenaiDeploymentName)}
+      - MAPPING_AWS_BEDROCK_MODEL_ID=${q(mappingAwsBedrockModelId)}
+      - MAPPING_AWS_BEDROCK_ACCESS_KEY_ID=${q(mappingAwsBedrockAccessKeyId)}
+      - MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY=${q(mappingAwsBedrockSecretAccessKey)}
+      - MAPPING_AWS_BEDROCK_REGION=${q(mappingAwsBedrockRegion)}
+      - MAPPING_S3_REGION=${q(mappingS3Region)}
+      - MAPPING_S3_ACCESS_KEY_ID=${q(mappingS3AccessKeyId)}
+      - MAPPING_S3_SECRET_ACCESS_KEY=${q(mappingS3SecretAccessKey)}
+      - MAPPING_BUCKET_NAME_PIPELINE=${q(mappingBucketNamePipeline)}
 
 EOF
 chown ec2-user:ec2-user docker-compose.yml
