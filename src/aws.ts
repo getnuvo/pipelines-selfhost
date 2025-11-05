@@ -10,9 +10,9 @@ export let dnsRecord: any | undefined;
 
 export const run = async () => {
   const config = new pulumi.Config();
-  const prefix = config.get('prefix') || 'docdb';
+  const prefix = config.require('prefix');
   const masterUsername = config.get('docdbUsername') || 'master';
-  const masterPassword = config.get('docdbPassword'); // secret required
+  const masterPassword = config.require('docdbPassword'); // secret required
   const instanceClass = config.get('docdbInstanceClass') || 'db.t3.medium';
   const engineVersion = config.get('docdbEngineVersion') || '5.0.0'; // DocumentDB compatible w/ MongoDB 5.0
   // Optional overrides for backup schedule & retention (defaults: daily @07:00 UTC, 7 days)

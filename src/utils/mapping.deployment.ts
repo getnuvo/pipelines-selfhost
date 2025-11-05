@@ -19,10 +19,10 @@ const mappingAwsBedrockModelId = config.get('mappingAwsBedrockModelId') || 'anth
 const mappingAwsBedrockAccessKeyId = config.get('mappingAwsBedrockAccessKeyId') || '';
 const mappingAwsBedrockSecretAccessKey = config.get('mappingAwsBedrockSecretAccessKey') || '';
 const mappingAwsBedrockRegion = config.get('mappingAwsBedrockRegion') || '';
-const mappingS3Region = config.get('AWS_REGION') || '';
-const mappingS3AccessKeyId = config.get('AWS_ACCESS_KEY') || '';
-const mappingS3SecretAccessKey = config.get('AWS_SECRET_KEY') || '';
-const mappingBucketNamePipeline = config.get('AWS_S3_BUCKET') || '';
+const mappingS3Region = config.require('AWS_REGION');
+const mappingS3AccessKeyId = config.require('AWS_ACCESS_KEY');
+const mappingS3SecretAccessKey = config.require('AWS_SECRET_KEY');
+const mappingBucketNamePipeline = config.require('AWS_S3_BUCKET');
 
 /**
  *

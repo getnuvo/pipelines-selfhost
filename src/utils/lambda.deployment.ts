@@ -11,7 +11,7 @@ const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
-let dockerToken = config.get('dockerHubAccessToken') || '';
+let dockerToken: string;
 
 const fetchFunctionList = async () => {
   const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
@@ -383,7 +383,7 @@ export const initialLambdaFunctions = async (
             SERVERLESS_EXECUTE_TRANSFORM_FUNCTION_NAME: `${functionPrefix}-execute-transform`,
             SERVERLESS_FETCH_INPUT_DATA_FUNCTION_NAME: `${functionPrefix}-fetch-input-data`,
             SERVERLESS_EXECUTE_WRITE_OUTPUT_DATA_FUNCTION_NAME: `${functionPrefix}-execute-write-output-data`,
-            BREVO_API_KEY: config.require('BREVO_API_KEY'),
+            BREVO_API_KEY: config.get('BREVO_API_KEY') || '',
             MAPPING_BASE_URL: mappingModuleUrl,
             DP_LICENSE_KEY: config.require('INGESTRO_LICENSE_KEY'),
           },
