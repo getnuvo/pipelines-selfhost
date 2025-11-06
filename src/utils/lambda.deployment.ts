@@ -86,7 +86,14 @@ export const initS3Bucket = async () => {
   } else {
     s3BucketName = `${functionPrefix}-assets`;
     return new aws.s3.Bucket(s3BucketName, {
-      bucket: s3BucketName,
+      corsRules: [
+        {
+          allowedMethods: ['GET', 'PUT', 'POST', 'HEAD'],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          exposeHeaders: ['Content-Range']
+        }
+      ]
     });
   }
 };
