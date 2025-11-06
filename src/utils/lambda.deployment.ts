@@ -11,12 +11,15 @@ const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
+const codePipelineVersion = config.get('version') || '0.29.4';
+const existingS3Bucket = config.get('AWS_S3_BUCKET');
 let dockerToken: string;
+let s3BucketName: string;
 
 const fetchFunctionList = async () => {
   const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
   const body = {
-    version: '0.26.1',
+    version: codePipelineVersion,
     provider: 'AWS',
     license_key: config.require('INGESTRO_LICENSE_KEY'),
   };
@@ -58,7 +61,7 @@ const getHandler = (functionName: string) => {
 };
 
 const initialAPIGateway = async (managementFunction: any) => {
-  const endpoint = new apigateway.RestAPI('dp-self-hosted-management', {
+  const endpoint = new apigateway.RestAPI(`${functionPrefix}-dp-self-hosted`, {
     routes: [
       {
         path: '{route+}',
@@ -74,6 +77,18 @@ const initialAPIGateway = async (managementFunction: any) => {
   });
 
   return endpoint;
+};
+
+export const initS3Bucket = async () => {
+  if (existingS3Bucket) {
+    s3BucketName = existingS3Bucket;
+    return aws.s3.Bucket.get('existing-bucket', existingS3Bucket);
+  } else {
+    s3BucketName = `${functionPrefix}-assets`;
+    return new aws.s3.Bucket(s3BucketName, {
+      bucket: s3BucketName,
+    });
+  }
 };
 
 export const initialScheduleService = async () => {
@@ -148,7 +163,9 @@ export const initialLambdaFunctions = async (
   } catch (e) {
     throw new Error('Unauthorized: unable to retrieve the function list');
   }
-  const mappingModuleUrl = await initialMappingModule(dockerToken);
+  const s3Bucket = await initS3Bucket()
+
+  const mappingModuleUrl = await initialMappingModule(dockerToken, s3Bucket);
 
   const defaultVpc = pulumi.output(aws.ec2.getVpc({ default: true }));
   const defaultSubnetIds = defaultVpc.id.apply((vpcId) =>
@@ -237,7 +254,6 @@ export const initialLambdaFunctions = async (
     `${functionPrefix}-efs-wait`,
     {
       fileSystemId: efs.id,
-      region: aws.config.region,
       timeoutSeconds: 600,
       stabilizationSeconds: 120,
     },
@@ -269,7 +285,6 @@ export const initialLambdaFunctions = async (
     `${functionPrefix}-access-point-wait`,
     {
       fileSystemId: efs.id,
-      region: aws.config.region,
       timeoutSeconds: 300,
       stabilizationSeconds: 60,
     },
@@ -278,24 +293,24 @@ export const initialLambdaFunctions = async (
   // --------------------- End EFS Setup ---------------------
 
   // --------------------- SETUP IAM ROLE ---------------------
-  const awsIamRole = new aws.iam.Role('aws-self-hosted-example-role', {
+  const awsIamRole = new aws.iam.Role(`${functionPrefix}-self-hosted-role`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
       Service: 'lambda.amazonaws.com',
     }),
   });
 
-  new aws.iam.RolePolicyAttachment('lambda-basic-exec', {
+  new aws.iam.RolePolicyAttachment(`${functionPrefix}-lambda-basic-exec`, {
     role: awsIamRole.name,
     policyArn: aws.iam.ManagedPolicy.AWSLambdaBasicExecutionRole,
   });
 
-  new aws.iam.RolePolicyAttachment('lambda-vpc-access', {
+  new aws.iam.RolePolicyAttachment(`${functionPrefix}-lambda-vpc-access`, {
     role: awsIamRole.name,
     policyArn: aws.iam.ManagedPolicy.AWSLambdaVPCAccessExecutionRole,
   });
 
   // Custom EFS policy for Lambda
-  const lambdaEfsPolicy = new aws.iam.Policy('lambda-efs-specific-policy', {
+  const lambdaEfsPolicy = new aws.iam.Policy(`${functionPrefix}-lambda-efs-specific-policy`, {
     description:
       'Allow Lambda to access only the specific EFS file system and access point',
     policy: pulumi.all([efs.arn, efsAccessPoint.arn]).apply(([efsArn, apArn]) =>
@@ -314,7 +329,7 @@ export const initialLambdaFunctions = async (
       }),
     ),
   });
-  new aws.iam.RolePolicyAttachment('lambdaEfsAccessPolicy', {
+  new aws.iam.RolePolicyAttachment(`${functionPrefix}-lambda-efs-access-policy`, {
     role: awsIamRole.name,
     policyArn: lambdaEfsPolicy.arn,
   });
@@ -374,7 +389,7 @@ export const initialLambdaFunctions = async (
             AWS_PROVIDER_REGION: config.require('AWS_REGION'),
             AWS_PROVIDER_KEY: config.require('AWS_ACCESS_KEY'),
             AWS_PROVIDER_SECRET: config.require('AWS_SECRET_KEY'),
-            AWS_S3_BUCKET: config.require('AWS_S3_BUCKET'),
+            AWS_S3_BUCKET: s3Bucket.bucket.apply(bucket=> bucket),
             PUSHER_APP_ID: config.get('PUSHER_APP_ID') || '',
             PUSHER_KEY: config.get('PUSHER_KEY') || '',
             PUSHER_SECRET: config.get('PUSHER_SECRET') || '',
@@ -399,8 +414,8 @@ export const initialLambdaFunctions = async (
       },
       {
         dependsOn: shouldMountEfs
-          ? [loggingService, efsAccessPoint, waiter, accessPointWaiter]
-          : [loggingService],
+          ? [loggingService, s3Bucket, efsAccessPoint, waiter, accessPointWaiter]
+          : [loggingService, s3Bucket],
       },
     );
 
@@ -421,9 +436,6 @@ export const initialLambdaFunctions = async (
 
   // Add S3 trigger for email-listener
   if (emailListenerFunction) {
-    const s3BucketName = config.require('AWS_S3_BUCKET');
-    const s3Bucket = aws.s3.Bucket.get('trigger-bucket', s3BucketName);
-
     // Permission for S3 to invoke Lambda
     const s3Permission = new aws.lambda.Permission('email-listener-s3-permission', {
       action: 'lambda:InvokeFunction',

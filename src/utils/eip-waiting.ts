@@ -9,16 +9,14 @@ class LambdaEniWaitProvider implements pulumi.dynamic.ResourceProvider {
     const {
       securityGroupId,
       subnetIds,
-      region = process.env.AWS_REGION ||
-      process.env.AWS_DEFAULT_REGION ||
-      'eu-central-1',
     } = inputs;
     const timeoutSeconds = 300;
     const pollSeconds = 5;
     const expected = subnetIds.length;
 
     const config = new pulumi.Config('aws');
-    const awsProfile = config.get('profile') || process.env.AWS_PROFILE;
+    const awsProfile = config.get('profile');
+    const region = config.get('region');
 
     const client = new EC2Client({ region, profile: awsProfile });
     const expiredAt = Date.now() + timeoutSeconds * 1000;

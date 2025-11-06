@@ -3,20 +3,19 @@ import { EFSClient, DescribeMountTargetsCommand } from '@aws-sdk/client-efs';
 
 interface IWaitForEfsInputs {
   fileSystemId: pulumi.Input<string>;
-  region?: pulumi.Input<string>;
   timeoutSeconds?: pulumi.Input<number>;
   stabilizationSeconds?: pulumi.Input<number>;
 }
 
 class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
   async create(inputs: any): Promise<pulumi.dynamic.CreateResult> {
-    const fileSystemId = inputs.fileSystemId;
-    const region = inputs.region || process.env.AWS_REGION || 'us-east-1';
+    const fileSystemId = inputs.fileSystemId;;
     const timeout = (inputs.timeoutSeconds || 300) * 1000;
     const stabilizationMs = ((inputs.stabilizationSeconds ?? 30) as number) * 1000;
 
     const config = new pulumi.Config('aws');
-    const awsProfile = config.get('profile') || process.env.AWS_PROFILE;
+    const awsProfile = config.get('profile');
+    const region = config.get('region');
 
     const client = new EFSClient({ region, profile: awsProfile });
 
