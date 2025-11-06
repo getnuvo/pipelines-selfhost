@@ -1,12 +1,14 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
+import {Bucket} from "@pulumi/aws/s3";
+import {Output} from "@pulumi/pulumi";
 
 const config = new pulumi.Config();
 const functionPrefix = config.require('prefix');
 const dockerImageName =
   config.get('dockerImageName') || 'getnuvo/mapping:latest'; // e.g. dockerhub repo/image:tag
 const dockerHubUsername = config.get('dockerHubUsername') || 'getnuvo';
-const instanceType = config.get('ec2InstanceType') || 't3.large';
+const instanceType = config.get('ec2InstanceType') || 't3.xlarge';
 const rootVolumeSize = config.getNumber('rootVolumeSize') || 30; // GiB
 
 const mappingLlmProvider = config.get('mappingLlmProvider') || 'AZURE';
@@ -22,14 +24,14 @@ const mappingAwsBedrockRegion = config.get('mappingAwsBedrockRegion') || '';
 const mappingS3Region = config.require('AWS_REGION');
 const mappingS3AccessKeyId = config.require('AWS_ACCESS_KEY');
 const mappingS3SecretAccessKey = config.require('AWS_SECRET_KEY');
-const mappingBucketNamePipeline = config.require('AWS_S3_BUCKET');
+const mappingBucketNamePipeline = config.get('AWS_S3_BUCKET');
 
 /**
  *
  * @returns void
  * Main function to initialize mapping module instance
  */
-export const initialMappingModule = async (dockerToken: string) => {
+export const initialMappingModule = async (dockerToken: string, s3Bucket: Bucket) => {
   const defaultVpc = pulumi.output(aws.ec2.getVpc({ default: true }));
   const defaultSubnetIds = defaultVpc.id.apply((vpcId) =>
     aws.ec2.getSubnets({
@@ -63,17 +65,17 @@ export const initialMappingModule = async (dockerToken: string) => {
     },
   );
 
-  const ec2Role = new aws.iam.Role('ec2-docker-role', {
+  const ec2Role = new aws.iam.Role(`${functionPrefix}-ec2-docker-role`, {
     assumeRolePolicy: aws.iam.assumeRolePolicyForPrincipal({
       Service: 'ec2.amazonaws.com',
     }),
   });
-  new aws.iam.RolePolicyAttachment('ec2-docker-role-ssm', {
+  new aws.iam.RolePolicyAttachment(`${functionPrefix}-ec2-docker-role-ssm`, {
     role: ec2Role.name,
     policyArn: 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore',
   });
   const instanceProfile = new aws.iam.InstanceProfile(
-    'ec2-docker-instance-profile',
+    `${functionPrefix}-ec2-docker-instance-profile`,
     { role: ec2Role.name },
   );
 
@@ -89,25 +91,27 @@ export const initialMappingModule = async (dockerToken: string) => {
     }),
   );
 
+  const instanceName = `${functionPrefix}-ingestro-mapping-module`;
   const instance = new aws.ec2.Instance(
-    'ingestro-mapping-module',
+      instanceName,
     {
       ami: ami.id,
       instanceType,
       subnetId: defaultSubnetIds.ids[0],
       vpcSecurityGroupIds: [mappingModuleSg.id],
       iamInstanceProfile: instanceProfile.name,
-      userData: userData(dockerToken),
+      userData: userData(dockerToken, s3Bucket.bucket),
       associatePublicIpAddress: true,
       rootBlockDevice: {
         volumeSize: rootVolumeSize,
         volumeType: 'gp3',
         encrypted: true,
       },
-      tags: { Name: 'ingestro-mapping-module' },
+      tags: { Name: instanceName },
     },
     {
       replaceOnChanges: ['userData'],
+      dependsOn: [s3Bucket],
     },
   );
 
@@ -130,7 +134,7 @@ const q = (val: string | number | undefined) => {
   return String(val).replace(/"/g, '\\"');
 };
 
-const userData = (dockerToken: string) =>
+const userData = (dockerToken: string, bucketName: Output<string>) =>
   pulumi.all([dockerHubLoginSnippet(dockerToken)]).apply(
     ([loginSnippet]) => `#!/bin/bash
 set -xe
@@ -172,7 +176,7 @@ services:
       - MAPPING_S3_REGION=${q(mappingS3Region)}
       - MAPPING_S3_ACCESS_KEY_ID=${q(mappingS3AccessKeyId)}
       - MAPPING_S3_SECRET_ACCESS_KEY=${q(mappingS3SecretAccessKey)}
-      - MAPPING_BUCKET_NAME_PIPELINE=${q(mappingBucketNamePipeline)}
+      - MAPPING_BUCKET_NAME_PIPELINE=${bucketName.apply(b => b)}
 
 EOF
 chown ec2-user:ec2-user docker-compose.yml
