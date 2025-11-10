@@ -135,8 +135,8 @@ const q = (val: string | number | undefined) => {
 };
 
 const userData = (dockerToken: string, bucketName: Output<string>) =>
-  pulumi.all([dockerHubLoginSnippet(dockerToken)]).apply(
-    ([loginSnippet]) => `#!/bin/bash
+  pulumi.all([dockerHubLoginSnippet(dockerToken), bucketName]).apply(
+    ([loginSnippet, s3BucketName]) => `#!/bin/bash
 set -xe
 exec > >(tee /var/log/user-data.log|logger -t user-data ) 2>&1
 
@@ -176,7 +176,7 @@ services:
       - MAPPING_S3_REGION=${q(mappingS3Region)}
       - MAPPING_S3_ACCESS_KEY_ID=${q(mappingS3AccessKeyId)}
       - MAPPING_S3_SECRET_ACCESS_KEY=${q(mappingS3SecretAccessKey)}
-      - MAPPING_BUCKET_NAME_PIPELINE=${bucketName.apply(b => b)}
+      - MAPPING_BUCKET_NAME_PIPELINE=${s3BucketName}
 
 EOF
 chown ec2-user:ec2-user docker-compose.yml
