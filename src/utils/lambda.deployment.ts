@@ -11,7 +11,7 @@ const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
-const codePipelineVersion = config.get('version') || '0.29.4';
+const codePipelineVersion = config.get('version') || '0.31.1';
 const existingS3Bucket = config.get('AWS_S3_BUCKET');
 let dockerToken: string;
 let s3BucketName: string;
