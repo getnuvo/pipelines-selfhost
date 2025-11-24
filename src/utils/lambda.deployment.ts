@@ -11,13 +11,13 @@ const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
-const codePipelineVersion = config.get('version') || '0.31.1';
+const codePipelineVersion = config.get('version') || '1.0.0';
 const existingS3Bucket = config.get('AWS_S3_BUCKET');
 let dockerToken: string;
 let s3BucketName: string;
 
 const fetchFunctionList = async () => {
-  const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
+  const url = `https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment`;
   const body = {
     version: codePipelineVersion,
     provider: 'AWS',
@@ -32,7 +32,7 @@ const fetchFunctionList = async () => {
       docker_key: string;
     };
   } catch (error) {
-    console.error('Error fetching function list:', error);
+    console.error('Error fetching function list:', error.response.data);
     throw error;
   }
 };
@@ -69,7 +69,7 @@ const initialAPIGateway = async (managementFunction: any) => {
         eventHandler: managementFunction,
       },
     ],
-    stageName: 'develop',
+    stageName: 'prod',
   }, { dependsOn: [managementFunction] });
 
   endpoint.url.apply((url) => {
