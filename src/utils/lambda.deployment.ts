@@ -32,7 +32,7 @@ const fetchFunctionList = async () => {
       docker_key: string;
     };
   } catch (error) {
-    console.error('Error fetching function list:', error);
+    console.error('Error fetching function list:', error.response.data);
     throw error;
   }
 };
