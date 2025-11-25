@@ -3,42 +3,20 @@ import * as aws from '@pulumi/aws';
 import * as apigateway from '@pulumi/aws-apigateway';
 import { WaitForEfsTargets } from './efs-waiting-target';
 import { LambdaEniWait } from './eip-waiting';
-import { default as axios } from 'axios';
 import { initialMappingModule } from './mapping.deployment';
 import { Bucket } from '@pulumi/aws/s3';
+import { fetchFunctionList } from './ingestro';
 
 const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
-const codePipelineVersion = config.get('version') || '1.0.0';
 const existingS3Bucket = config.get('AWS_S3_BUCKET');
 const customDomain = config.get('customDomain');
 const certificateArn = config.get('certificateArn');
 let dockerToken: string;
 let s3BucketName: string;
-
-const fetchFunctionList = async () => {
-  const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
-  const body = {
-    version: codePipelineVersion,
-    provider: 'AWS',
-    license_key: config.require('INGESTRO_LICENSE_KEY'),
-  };
-
-  try {
-    const response = await axios.post(url, body);
-    dockerToken = response.data.docker_key;
-    return response.data as {
-      functions: { name: string; url: string }[];
-      docker_key: string;
-    };
-  } catch (error) {
-    console.error('Error fetching function list:', error.response.data);
-    throw error;
-  }
-};
 
 const getHandler = (functionName: string) => {
   switch (functionName) {
@@ -228,7 +206,9 @@ export const initialLambdaFunctions = async (
 
   let functionUrls: { name: string; url: string }[];
   try {
-    functionUrls = (await fetchFunctionList()).functions;
+    const { functions, docker_key } = await fetchFunctionList();
+    functionUrls = functions;
+    dockerToken = docker_key;
   } catch (e) {
     throw new Error('Unauthorized: unable to retrieve the function list');
   }

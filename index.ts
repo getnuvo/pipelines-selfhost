@@ -1,14 +1,23 @@
 import * as pulumi from '@pulumi/pulumi';
-import * as awsMod from './src/aws';
-import * as azureMod from './src/azure';
 
 const config = new pulumi.Config();
 const provider = config.require('provider');
 
-if (provider === 'aws') {
-  awsMod.run();
-} else if (provider === 'azure') {
-  azureMod.run();
-} else {
+async function main() {
+  if (provider === 'aws') {
+    const awsMod = await import('./src/aws');
+    await awsMod.run();
+    return;
+  }
+  if (provider === 'azure') {
+    const azureMod = await import('./src/azure');
+    azureMod.run();
+    return;
+  }
   throw new Error(`Unknown provider: ${provider}`);
 }
+
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});
