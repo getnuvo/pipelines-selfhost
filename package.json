@@ -11,11 +11,12 @@
     "typescript": "5.6.3"
   },
   "dependencies": {
-    "@aws-sdk/client-ec2": "^3.899.0",
-    "@aws-sdk/client-efs": "^3.899.0",
-    "@aws-sdk/client-ses": "^3.899.0",
+    "@azure/storage-blob": "12.25.0",
+    "@aws-sdk/client-ec2": "3.899.0",
+    "@aws-sdk/client-efs": "3.899.0",
+    "@aws-sdk/client-ses": "3.899.0",
     "@pulumi/aws": "6.50.0",
-    "@pulumi/aws-apigateway": "^3.0.0",
+    "@pulumi/aws-apigateway": "3.0.0",
     "@pulumi/azure-native": "3.8.0",
     "@pulumi/command": "1.0.1",
     "@pulumi/pulumi": "3.158.0",
