@@ -16,7 +16,7 @@ export function getConnectionString(
   const primaryStorageKey = storageAccountKeys.keys[0].value;
 
   // Build the connection string to the storage account.
-  return pulumi.interpolate`DefaultEndpointsProtocol=https;AccountName=${accountName};AccountKey=${primaryStorageKey}`;
+  return pulumi.interpolate`DefaultEndpointsProtocol=https;AccountName=${accountName};AccountKey=${primaryStorageKey};EndpointSuffix=core.windows.net`;
 }
 
 export function signedBlobReadUrl(
