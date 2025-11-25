@@ -18,3 +18,4 @@ coverage/
 *.log
 temp/*
 !temp/.gitkeep
+Pulumi.*.*
