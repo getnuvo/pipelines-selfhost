@@ -5,22 +5,70 @@ import * as resources from '@pulumi/azure-native/resources';
 import * as storage from '@pulumi/azure-native/storage';
 import * as web from '@pulumi/azure-native/web';
 import * as network from '@pulumi/azure-native/network';
-import axios from 'axios';
 import * as insights from '@pulumi/azure-native/applicationinsights';
 import * as operationalinsights from '@pulumi/azure-native/operationalinsights';
 import * as cosmosdb from '@pulumi/azure-native/cosmosdb';
+import * as random from '@pulumi/random';
 import { getConnectionString, signedBlobReadUrl } from './helpers';
+import { fetchFunctionList } from './utils/ingestro';
+import { serializationConfigValue } from './utils/string';
 
 let app: web.WebApp;
 let appInsights: insights.Component;
 let customDomain;
 let customDomainDnsRecords;
 let databaseConnectionString;
-let staticIpAddress;
 
 export const run = () => {
   const config = new pulumi.Config();
-  const existingResourceGroupName = 'functions-rg';
+  const prefix = config.get('prefix') || 'ingestro';
+  const existingResourceGroupName = `${prefix}-functions-rg`;
+  const cosmosAccountName =
+    config.get('COSMOS_ACCOUNT_NAME') || `${prefix}-mongo-ru-account`;
+  const cosmosPrimaryRegion =
+    config.get('COSMOS_PRIMARY_REGION') || 'germanywestcentral';
+  const cosmosServerVersion =
+    config.get('COSMOS_MONGO_SERVER_VERSION') || '5.0';
+  const cosmosDatabaseName = config.get('COSMOS_DB_NAME') || 'ingestro';
+  const cosmosLogDatabaseName =
+    config.get('COSMOS_LOG_DB_NAME') || 'ingestro_logging';
+  const cosmosDatabaseThroughput = config.getNumber('COSMOS_DB_RU') || 400;
+  const cosmosLogDatabaseThroughput =
+    config.getNumber('COSMOS_LOG_DB_RU') || cosmosDatabaseThroughput;
+  const mappingContainerImage =
+    config.require('MAPPING_CONTAINER_IMAGE') || 'getnuvo/mapping:latest';
+  const mappingDockerServer =
+    config.get('MAPPING_DOCKER_SERVER') || 'https://registry.hub.docker.com';
+  const mappingAppName =
+    config.get('MAPPING_APP_NAME') || `${prefix}-mapping-module`;
+  const mappingModuleEnv =
+    config.getObject<Record<string, string>>('MAPPING_MODULE_ENV') || {};
+  const deploymentPayload = pulumi.output(fetchFunctionList());
+  const resolvedCodeArtifact = deploymentPayload.apply((payload) => {
+    const firstFunction = payload.functions?.[0];
+    if (!firstFunction?.url || !firstFunction?.name) {
+      throw new Error('API did not return a valid function payload');
+    }
+    return {
+      blobName: `${firstFunction.name}.zip`,
+      archive: new pulumi.asset.RemoteArchive(firstFunction.url),
+      dockerKey: payload.docker_key || '',
+    };
+  });
+  const mappingDockerPassword = resolvedCodeArtifact.apply(
+    (artifact) => artifact.dockerKey,
+  );
+  const dataContainerSuffix = new random.RandomString(
+    `${prefix}-data-container-suffix`,
+    {
+      length: 8,
+      special: false,
+      upper: false,
+      lower: true,
+      number: true,
+    },
+  );
+  const dataContainerName = pulumi.interpolate`ingestrodata${dataContainerSuffix.result}`;
 
   // Create a separate resource group for this example.
   const resourceGroup = new resources.ResourceGroup(existingResourceGroupName, {
@@ -28,55 +76,22 @@ export const run = () => {
   });
   const location = resourceGroup.location;
 
-  const vcoreAdminUser = config.require('VC_MONGO_ADMIN_USERNAME');
-  const vcoreAdminPassword = config.require('VC_MONGO_ADMIN_PASSWORD');
-  const mongoClusterName =
-    config.get('MONGO_CLUSTER_NAME') || 'mongo-vcore-cluster';
-  const mongoCluster = new cosmosdb.MongoCluster(mongoClusterName, {
-    resourceGroupName: resourceGroup.name,
-    location: 'germanynorth',
-    administratorLogin: vcoreAdminUser,
-    administratorLoginPassword: vcoreAdminPassword,
-    serverVersion: '5.0',
-
-    // Define the cluster tier (SKU), storage, and number of nodes.
-    // M30 is a good starting point for development/testing.
-    nodeGroupSpecs: [
-      {
-        sku: 'M30',
-        diskSizeGB: 128,
-        enableHa: true, // High availability
-        kind: 'Shard',
-        nodeCount: 2,
+  // ---------------- NETWORKING ----------------
+  // VNet + subnet used for function and mapping app integration
+  const logAnalytics = new operationalinsights.Workspace(
+    `${prefix}-log-analytics`,
+    {
+      resourceGroupName: resourceGroup.name,
+      location: location,
+      sku: { name: 'PerGB2018' },
+      retentionInDays: 30,
+      features: {
+        enableLogAccessUsingOnlyResourcePermissions: true,
       },
-    ],
-
-    tags: {
-      environment: 'development',
-      project: 'mongodb-vcore-demo',
     },
-  });
-
-  databaseConnectionString = mongoCluster.connectionString.apply(
-    (connectionString) =>
-      connectionString
-        .replace('<user>', vcoreAdminUser)
-        .replace('<password>', encodeURIComponent(vcoreAdminPassword)),
   );
 
-  // ---------------- NETWORKING ----------------
-  // NAT gateway + public IP for outbound traffic
-  const logAnalytics = new operationalinsights.Workspace('log-analytics', {
-    resourceGroupName: resourceGroup.name,
-    location: location,
-    sku: { name: 'PerGB2018' },
-    retentionInDays: 30,
-    features: {
-      enableLogAccessUsingOnlyResourcePermissions: true,
-    },
-  });
-
-  appInsights = new insights.Component('appinsights', {
+  appInsights = new insights.Component(`${prefix}-app-insights`, {
     resourceGroupName: resourceGroup.name,
     applicationType: insights.ApplicationType.Web,
     location: location,
@@ -85,29 +100,7 @@ export const run = () => {
     ingestionMode: 'LogAnalytics',
   });
 
-  const publicIp = new network.PublicIPAddress('nat-public-ip', {
-    resourceGroupName: resourceGroup.name,
-    location: location,
-    sku: {
-      name: network.PublicIPAddressSkuName.Standard,
-    },
-    publicIPAllocationMethod: network.IPAllocationMethod.Static,
-  });
-
-  const natGateway = new network.NatGateway('function-nat-gateway', {
-    resourceGroupName: resourceGroup.name,
-    location: location,
-    sku: {
-      name: network.NatGatewaySkuName.Standard,
-    },
-    publicIpAddresses: [
-      {
-        id: publicIp.id,
-      },
-    ],
-  });
-
-  const virtualNetwork = new network.VirtualNetwork('function-vnet', {
+  const virtualNetwork = new network.VirtualNetwork(`${prefix}-function-vnet`, {
     resourceGroupName: resourceGroup.name,
     location: location,
     addressSpace: {
@@ -115,53 +108,108 @@ export const run = () => {
     },
   });
 
-  const subnetWithNat = new network.Subnet(
-    'function-subnet',
-    {
-      resourceGroupName: resourceGroup.name,
-      virtualNetworkName: virtualNetwork.name,
-      addressPrefix: '10.2.1.0/24', // A subnet within the VNet's address space
-      natGateway: {
-        id: natGateway.id,
+  const subnetWithNat = new network.Subnet(`${prefix}-function-subnet`, {
+    resourceGroupName: resourceGroup.name,
+    virtualNetworkName: virtualNetwork.name,
+    addressPrefix: '10.2.1.0/24',
+    serviceEndpoints: [
+      {
+        service: 'Microsoft.Storage',
       },
-      // Add a service endpoint for Azure Storage to allow reliable access from the VNet
-      serviceEndpoints: [
-        {
-          service: 'Microsoft.Storage',
-        },
-      ],
-      // Required delegation for VNet integration with Azure Functions
-      delegations: [
-        {
-          name: 'delegation',
-          serviceName: 'Microsoft.Web/serverFarms',
-        },
-      ],
+      {
+        service: 'Microsoft.AzureCosmosDB',
+      },
+    ],
+    delegations: [
+      {
+        name: 'delegation',
+        serviceName: 'Microsoft.Web/serverFarms',
+      },
+    ],
+  });
+
+  const cosmosAccount = new cosmosdb.DatabaseAccount(cosmosAccountName, {
+    resourceGroupName: resourceGroup.name,
+    location: cosmosPrimaryRegion,
+    databaseAccountOfferType: 'Standard',
+    kind: cosmosdb.DatabaseAccountKind.MongoDB,
+    apiProperties: {
+      serverVersion: cosmosServerVersion,
     },
-    { dependsOn: [natGateway] },
+    locations: [
+      {
+        locationName: cosmosPrimaryRegion,
+        failoverPriority: 0,
+        isZoneRedundant: false,
+      },
+    ],
+    capabilities: [{ name: 'EnableMongo' }],
+    consistencyPolicy: {
+      defaultConsistencyLevel: cosmosdb.DefaultConsistencyLevel.Session,
+    },
+    publicNetworkAccess: 'Enabled',
+    // Allow unrestricted public access; rely on auth instead of IP filtering
+    tags: {
+      environment: 'development',
+      project: 'mongodb-ru',
+    },
+  });
+
+  const cosmosDatabase = new cosmosdb.MongoDBResourceMongoDBDatabase(
+    cosmosDatabaseName,
+    {
+      accountName: cosmosAccount.name,
+      resourceGroupName: resourceGroup.name,
+      resource: {
+        id: cosmosDatabaseName,
+      },
+      options: {
+        throughput: cosmosDatabaseThroughput,
+      },
+    },
+    { dependsOn: [cosmosAccount] },
   );
 
-  const mongoClusterFirewallRuleIngestro =
-    new cosmosdb.MongoClusterFirewallRule('mongoClusterFirewallRule-ingestro', {
-      endIpAddress: '3.76.77.133',
-      firewallRuleName: 'ingestro-vpn',
-      mongoClusterName: mongoCluster.name,
+  const cosmosLogDatabase = new cosmosdb.MongoDBResourceMongoDBDatabase(
+    cosmosLogDatabaseName,
+    {
+      accountName: cosmosAccount.name,
       resourceGroupName: resourceGroup.name,
-      startIpAddress: '3.76.77.133',
-    });
-  staticIpAddress = publicIp.ipAddress.apply((ip) => ip || '');
-  const mongoClusterFirewallRuleFunction =
-    new cosmosdb.MongoClusterFirewallRule('mongoClusterFirewallRule-function', {
-      endIpAddress: staticIpAddress,
-      firewallRuleName: 'function',
-      mongoClusterName: mongoCluster.name,
-      resourceGroupName: resourceGroup.name,
-      startIpAddress: staticIpAddress,
-    });
+      resource: {
+        id: cosmosLogDatabaseName,
+      },
+      options: {
+        throughput: cosmosLogDatabaseThroughput,
+      },
+    },
+    { dependsOn: [cosmosAccount] },
+  );
+
+  const accountConnectionStrings = pulumi
+    .all([resourceGroup.name, cosmosAccount.name])
+    .apply(([rgName, accountName]) =>
+      cosmosdb.listDatabaseAccountConnectionStrings({
+        resourceGroupName: rgName,
+        accountName,
+      }),
+    );
+
+  databaseConnectionString = accountConnectionStrings.apply((result) => {
+    const primaryConnectionString =
+      result.connectionStrings?.find((cs) =>
+        cs.description?.includes('Primary MongoDB'),
+      )?.connectionString || result.connectionStrings?.[0]?.connectionString;
+
+    if (!primaryConnectionString) {
+      throw new Error('Unable to resolve Cosmos DB Mongo connection string.');
+    }
+
+    return primaryConnectionString;
+  });
 
   // Storage account is required by Function App.
   // Also, we will upload the function code to the same storage account.
-  const storageAccount = new storage.StorageAccount('sa', {
+  const storageAccount = new storage.StorageAccount(`${prefix}sa`, {
     resourceGroupName: resourceGroup.name,
     sku: {
       name: storage.SkuName.Standard_LRS,
@@ -178,79 +226,34 @@ export const run = () => {
     );
 
   // Function code archives will be stored in this container.
-  const codeContainer = new storage.BlobContainer('zips', {
+  const codeContainer = new storage.BlobContainer(`${prefix}-zips`, {
     resourceGroupName: resourceGroup.name,
     accountName: storageAccount.name,
   });
 
-  const fileShare = new storage.FileShare('fileshare-data', {
-    accountName: storageAccount.name,
+  const dataContainer = new storage.BlobContainer(`${prefix}-data-container`, {
     resourceGroupName: resourceGroup.name,
-    shareName: 'my-data-share',
+    accountName: storageAccount.name,
   });
 
-  const codeVersion = config.get('codeVersion') || '0.0.0';
-  const skipUrlValidation =
-    (config.get('skipUrlValidation') || '').toLowerCase() === 'true';
-  const getSourceCodeRemoteUrl = async () => {
-    const apiUrl =
-      'http://demo8472884.mockable.io/dp-self-hosted?version=' + codeVersion;
-    let sourceCodeUrl: string;
+  const fileShare = new storage.FileShare(`${prefix}-share-data`, {
+    accountName: storageAccount.name,
+    resourceGroupName: resourceGroup.name,
+    shareName: `${prefix}-data-share`,
+  });
 
-    try {
-      console.log(`Making an API call to ${apiUrl}...`);
-      const response = await axios.get(apiUrl, { timeout: 10000 });
-      const urlField = response.data.url;
-      if (typeof urlField !== 'string' || !urlField) {
-        throw new Error('API did not return a valid url field');
-      }
-      sourceCodeUrl = urlField;
-      console.log(`Retrieved source code URL: ${sourceCodeUrl}`);
-    } catch (error) {
-      console.error('Failed to retrieve source code URL from API:', error);
-      throw error; // propagate original error for better diagnostics
-    }
-
-    if (!skipUrlValidation) {
-      try {
-        console.log('Validating pre-signed URL (HEAD)...');
-        await axios.head(sourceCodeUrl, { timeout: 10000 });
-        console.log('HEAD validation succeeded.');
-      } catch (headErr) {
-        console.warn(
-          'HEAD validation failed, attempting ranged GET (first byte)...',
-        );
-        try {
-          await axios.get(sourceCodeUrl, {
-            timeout: 15000,
-            headers: { Range: 'bytes=0-0' },
-            responseType: 'arraybuffer',
-          });
-          console.log('Ranged GET validation succeeded.');
-        } catch (getErr) {
-          console.error('Pre-signed URL validation failed:', getErr);
-          throw new Error('Pre-signed URL not accessible; aborting deploy.');
-        }
-      }
-    } else {
-      console.log(
-        'Skipping pre-signed URL validation due to skipUrlValidation=true',
-      );
-    }
-
-    return sourceCodeUrl;
-  };
-
-  const sourceCodeRemoteUrl = getSourceCodeRemoteUrl();
-  const codeSource = new pulumi.asset.RemoteArchive(sourceCodeRemoteUrl);
-  const codeBlobName = `azure-${codeVersion}.zip`;
+  const codeBlobName = resolvedCodeArtifact.apply(
+    (artifact) => artifact.blobName,
+  );
+  const codeSource = resolvedCodeArtifact.apply((artifact) => artifact.archive);
 
   const codeBlob = new storage.Blob(
-    codeBlobName,
+    `${prefix}-function-code-blob`,
     {
       resourceGroupName: resourceGroup.name,
       accountName: storageAccount.name,
       containerName: codeContainer.name,
+      blobName: codeBlobName,
       source: codeSource, // content ignored for updates unless codeVersion (and thus name) changes
     },
     {
@@ -261,7 +264,7 @@ export const run = () => {
 
   // Define a Consumption Plan for the Function App.
   // You can change the SKU to Premium or App Service Plan if needed.
-  const plan = new web.AppServicePlan('plan', {
+  const plan = new web.AppServicePlan(`${prefix}-plan`, {
     resourceGroupName: resourceGroup.name,
     location: resourceGroup.location,
     sku: {
@@ -269,6 +272,18 @@ export const run = () => {
       tier: 'ElasticPremium',
     },
     kind: 'functionapp,linux',
+    reserved: true,
+  });
+
+  const mappingPlan = new web.AppServicePlan(`${prefix}-mapping-plan`, {
+    resourceGroupName: resourceGroup.name,
+    location: resourceGroup.location,
+    sku: {
+      name: 'P1v3',
+      tier: 'PremiumV3',
+      capacity: 1,
+    },
+    kind: 'app,linux',
     reserved: true,
   });
 
@@ -284,6 +299,148 @@ export const run = () => {
     resourceGroup,
   );
 
+  const mappingLlmProvider = config.get('mappingLlmProvider') || 'AZURE';
+  const mappingLlmTemperature = config.getNumber('mappingLlmTemperature') ?? 0;
+  const mappingAzureOpenaiApiKey = config.get('mappingAzureOpenaiApiKey') || '';
+  const mappingAzureOpenaiEndpoint =
+    config.get('mappingAzureOpenaiEndpoint') || '';
+  const mappingAzureOpenaiApiVersion =
+    config.get('mappingAzureOpenaiApiVersion') || '2024-10-21';
+  const mappingAzureOpenaiDeploymentName =
+    config.get('mappingAzureOpenaiDeploymentName') || 'gpt-4o-mini';
+  const mappingAwsBedrockModelId =
+    config.get('mappingAwsBedrockModelId') ||
+    'anthropic.claude-3-haiku-20240307-v1:0';
+  const mappingAwsBedrockAccessKeyId =
+    config.get('mappingAwsBedrockAccessKeyId') || '';
+  const mappingAwsBedrockSecretAccessKey =
+    config.get('mappingAwsBedrockSecretAccessKey') || '';
+  const mappingAwsBedrockRegion = config.get('mappingAwsBedrockRegion') || '';
+  const mappingS3Region = config.require('AWS_REGION') || '';
+  const mappingS3AccessKeyId = config.require('AWS_ACCESS_KEY') || '';
+  const mappingS3SecretAccessKey = config.require('AWS_SECRET_KEY') || '';
+  const mappingBucketNamePipeline = config.get('AWS_S3_BUCKET') || '';
+
+  const mappingAppSettings = [
+    { name: 'WEBSITES_PORT', value: '8000' },
+    { name: 'DOCKER_REGISTRY_SERVER_URL', value: mappingDockerServer },
+    {
+      name: 'DOCKER_REGISTRY_SERVER_USERNAME',
+      value: 'getnuvo',
+    },
+    {
+      name: 'DOCKER_REGISTRY_SERVER_PASSWORD',
+      value: mappingDockerPassword,
+    },
+    { name: 'DOCKER_CUSTOM_IMAGE_NAME', value: mappingContainerImage },
+    {
+      name: 'APPINSIGHTS_INSTRUMENTATIONKEY',
+      value: appInsights.instrumentationKey,
+    },
+    {
+      name: 'APPLICATIONINSIGHTS_CONNECTION_STRING',
+      value: appInsights.connectionString,
+    },
+    {
+      name: 'NODE_ENV',
+      value: 'production',
+    },
+    {
+      name: 'MAPPING_PORT',
+      value: '8000',
+    },
+    {
+      name: 'MAPPING_LLM_PROVIDER',
+      value: serializationConfigValue(mappingLlmProvider),
+    },
+    {
+      name: 'MAPPING_LLM_TEMPERATURE',
+      value: serializationConfigValue(mappingLlmTemperature),
+    },
+    {
+      name: 'MAPPING_AZURE_OPENAI_API_KEY',
+      value: serializationConfigValue(mappingAzureOpenaiApiKey),
+    },
+    {
+      name: 'MAPPING_AZURE_OPENAI_ENDPOINT',
+      value: serializationConfigValue(mappingAzureOpenaiEndpoint),
+    },
+    {
+      name: 'MAPPING_AZURE_OPENAI_API_VERSION',
+      value: serializationConfigValue(mappingAzureOpenaiApiVersion),
+    },
+    {
+      name: 'MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME',
+      value: serializationConfigValue(mappingAzureOpenaiDeploymentName),
+    },
+    {
+      name: 'MAPPING_AWS_BEDROCK_MODEL_ID',
+      value: serializationConfigValue(mappingAwsBedrockModelId),
+    },
+    {
+      name: 'MAPPING_AWS_BEDROCK_ACCESS_KEY_ID',
+      value: serializationConfigValue(mappingAwsBedrockAccessKeyId),
+    },
+    {
+      name: 'MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY',
+      value: serializationConfigValue(mappingAwsBedrockSecretAccessKey),
+    },
+    {
+      name: 'MAPPING_AWS_BEDROCK_REGION',
+      value: serializationConfigValue(mappingAwsBedrockRegion),
+    },
+    {
+      name: 'MAPPING_S3_REGION',
+      value: serializationConfigValue(mappingS3Region),
+    },
+    {
+      name: 'MAPPING_S3_ACCESS_KEY_ID',
+      value: serializationConfigValue(mappingS3AccessKeyId),
+    },
+    {
+      name: 'MAPPING_S3_SECRET_ACCESS_KEY',
+      value: serializationConfigValue(mappingS3SecretAccessKey),
+    },
+    {
+      name: 'MAPPING_BUCKET_NAME_PIPELINE',
+      value: serializationConfigValue(mappingBucketNamePipeline),
+    },
+    // TODO: add AZURE BLOB STORAGE SETTINGS
+    ...Object.entries(mappingModuleEnv).map(([name, value]) => ({
+      name,
+      value,
+    })),
+  ];
+
+  const mappingApp = new web.WebApp(mappingAppName, {
+    resourceGroupName: resourceGroup.name,
+    serverFarmId: mappingPlan.id,
+    kind: 'app,linux',
+    reserved: true,
+    siteConfig: {
+      linuxFxVersion: pulumi.interpolate`DOCKER|${mappingContainerImage}`,
+      appSettings: mappingAppSettings,
+      alwaysOn: true,
+      http20Enabled: true,
+      use32BitWorkerProcess: false,
+    },
+    httpsOnly: true,
+  });
+
+  const mappingAppVnetIntegration = new web.WebAppSwiftVirtualNetworkConnection(
+    `${prefix}-mapping-app-vnet-integration`,
+    {
+      name: mappingApp.name,
+      resourceGroupName: resourceGroup.name,
+      subnetResourceId: subnetWithNat.id,
+    },
+    { dependsOn: [mappingApp, subnetWithNat] },
+  );
+
+  const mappingBaseUrl = mappingApp.defaultHostName.apply(
+    (host) => `https://${host}`,
+  );
+
   const sharedMountConfig = {
     'transformation-mount': {
       // A friendly name for the mount configuration
@@ -294,7 +451,7 @@ export const run = () => {
       mountPath: '/mnt/hyperformula-column',
     },
   };
-  const functionAppName = 'dp-self-hosted';
+  const functionAppName = `${prefix}-dp-self-hosted`;
   const baseAppEnvironmentVariables = [
     { name: 'AzureWebJobsStorage', value: storageConnectionString },
     { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' },
@@ -337,9 +494,15 @@ export const run = () => {
     httpsOnly: true,
   });
 
+  const functionAppUrl = app.defaultHostName.apply((host) => {
+    const url = `https://${host}`;
+    console.log('Azure Function App URL:', url);
+    return url;
+  });
+
   // VNet integration (unchanged)
   const functionVnetIntegration = new web.WebAppSwiftVirtualNetworkConnection(
-    'managementFuncVnetIntegration',
+    `${prefix}-management-func-vnet-integration`,
     {
       name: app.name,
       resourceGroupName: resourceGroup.name,
@@ -356,7 +519,7 @@ export const run = () => {
   if (customDomain) {
     // 1. Create basic host name binding (no SSL yet). Azure requires TXT verification + DNS mapping ready.
     customDomainBinding = new web.WebAppHostNameBinding(
-      'custom-domain-binding',
+      `${prefix}-custom-domain-binding`,
       {
         name: app.name,
         siteName: app.name,
@@ -371,82 +534,78 @@ export const run = () => {
   const appSettings = [
     ...baseAppEnvironmentVariables,
     {
-      name: 'USER_PLATFORM_DB_NAME',
-      value: config.require('USER_PLATFORM_DB_NAME'),
-    },
-    {
-      name: 'USER_PLATFORM_DB_HOST',
-      value: config.require('USER_PLATFORM_DB_HOST'),
-    },
-    {
-      name: 'USER_PLATFORM_DB_USERNAME',
-      value: config.require('USER_PLATFORM_DB_USERNAME'),
-    },
-    {
-      name: 'USER_PLATFORM_DB_PASSWORD',
-      value: config.require('USER_PLATFORM_DB_PASSWORD'),
-    },
-    {
-      name: 'DATA_PIPELINE_DB_NAME',
-      value: config.require('DATA_PIPELINE_DB_NAME'),
-    },
-    {
       name: 'DATA_PIPELINE_DB_URI',
       value: databaseConnectionString,
     },
     {
-      name: 'DATA_PIPELINE_LOG_DB_NAME',
-      value: config.require('DATA_PIPELINE_LOG_DB_NAME'),
+      name: 'DATA_PIPELINE_DB_NAME',
+      value: cosmosDatabaseName,
     },
     {
-      name: 'USER_PLATFORM_LOG_DB_NAME',
-      value: config.require('USER_PLATFORM_LOG_DB_NAME'),
+      name: 'DATA_PIPELINE_LOG_DB_NAME',
+      value: cosmosLogDatabaseName,
     },
-    { name: 'JWT_SECRET_KEY', value: config.require('JWT_SECRET_KEY') },
     {
       name: 'S3_CONNECTOR_SECRET_KEY',
       value: config.require('S3_CONNECTOR_SECRET_KEY'),
     },
+    { name: 'MAPPING_BASE_URL', value: mappingBaseUrl },
     {
-      name: 'HYPERFORMULA_LICENSE_KEY',
-      value: config.require('HYPERFORMULA_LICENSE_KEY'),
+      name: 'CLOUD_PROVIDER',
+      value: 'AZURE',
     },
-    { name: 'PUSHER_APP_ID', value: config.require('PUSHER_APP_ID') },
-    { name: 'PUSHER_KEY', value: config.require('PUSHER_KEY') },
-    { name: 'PUSHER_SECRET', value: config.require('PUSHER_SECRET') },
-    { name: 'BREVO_API_KEY', value: config.require('BREVO_API_KEY') },
-    { name: 'MAPPING_BASE_URL', value: config.require('MAPPING_BASE_URL') },
-    {
-      name: 'CLOUD_PROVIDER_ENVIRONMENT',
-      value: config.require('CLOUD_PROVIDER_ENVIRONMENT'),
-    },
-    { name: 'STORAGE_PROVIDER', value: config.require('STORAGE_PROVIDER') },
     {
       name: 'AZURE_STORAGE_CONTAINER_NAME',
-      value: config.require('AZURE_STORAGE_CONTAINER_NAME'),
+      value: dataContainer.name.apply((name) => name),
     },
-    { name: 'AZURE_ACCOUNT_NAME', value: config.require('AZURE_ACCOUNT_NAME') },
+    { name: 'AZURE_ACCOUNT_NAME', value: storageAccount.name },
     {
       name: 'AZURE_CONNECTION_STRING',
-      value: config.require('AZURE_CONNECTION_STRING'),
+      value: storageConnectionString,
     },
+    { name: 'PUSHER_APP_ID', value: config.get('PUSHER_APP_ID') },
+    { name: 'PUSHER_KEY', value: config.get('PUSHER_KEY') },
+    { name: 'PUSHER_SECRET', value: config.get('PUSHER_SECRET') },
+    { name: 'BREVO_API_KEY', value: config.get('BREVO_API_KEY') },
+    { name: 'DP_LICENSE_KEY', value: config.require('INGESTRO_LICENSE_KEY') },
     {
       name: 'AZURE_FUNCTION_BASE_URL',
-      value: app.defaultHostName.apply((h) => `https://${h}`),
+      value: functionAppUrl,
+    },
+    // TODO: remove AWS settings
+    {
+      name: 'STORAGE_PROVIDER_ENVIRONMENT',
+      value: 'AWS',
+    },
+    {
+      name: 'AWS_PROVIDER_REGION',
+      value: config.require('AWS_REGION'),
+    },
+    {
+      name: 'AWS_PROVIDER_KEY',
+      value: config.require('AWS_ACCESS_KEY'),
+    },
+    {
+      name: 'AWS_PROVIDER_SECRET',
+      value: config.require('AWS_SECRET_KEY'),
+    },
+    {
+      name: 'AWS_S3_BUCKET',
+      value: config.require('AWS_S3_BUCKET'),
     },
     // Optionally surface custom domain into app env (not required for binding)
     ...(customDomain ? [{ name: 'CUSTOM_DOMAIN', value: customDomain }] : []),
   ];
 
   const appSettingsResource = new web.WebAppApplicationSettings(
-    'app-settings',
+    `${prefix}-app-settings`,
     {
       name: app.name,
       resourceGroupName: resourceGroup.name,
       properties: pulumi.output(appSettings).apply((settings) => {
         const result: { [k: string]: string } = {};
         settings.forEach((s) => {
-          result[s.name] = s.value;
+          result[s.name] = s.value || '';
         });
         return result;
       }),
@@ -487,7 +646,7 @@ export const run = () => {
               description: 'Map subdomain to Function App default host name',
             });
           } else {
-            // For apex domains, avoid using the NAT gateway public IP (outbound only). Recommend ALIAS/ANAME where supported.
+            // For apex domains, prefer ALIAS/ANAME records pointing to the default host instead of mapping to transient outbound IPs.
             records.push({
               type: 'ALIAS',
               name: '@',
@@ -502,11 +661,12 @@ export const run = () => {
     : undefined;
 
   return {
-    ndpoint: pulumi.interpolate`https://${app.defaultHostName}/dp`,
+    endpoint: functionAppUrl.apply((url) => `${url}/dp`),
     appInsightsInstrumentationKey: appInsights.instrumentationKey,
     appInsightsConnectionString: appInsights.connectionString,
     configuredCustomDomain: customDomain || undefined,
     customDomainDnsRecordsExport: customDomainDnsRecords,
     databaseConnectionStringExport: databaseConnectionString,
+    mappingModuleUrl: mappingBaseUrl,
   };
 };
