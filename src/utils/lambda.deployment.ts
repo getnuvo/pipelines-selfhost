@@ -478,22 +478,22 @@ export const initialLambdaFunctions = async (
         },
         ...(shouldMountEfs
           ? {
-              fileSystemConfig: {
-                arn: efsAccessPoint.arn,
-                localMountPath: '/mnt/hyperformula-column',
-              },
-            }
+            fileSystemConfig: {
+              arn: efsAccessPoint.arn,
+              localMountPath: '/mnt/hyperformula-column',
+            },
+          }
           : {}),
       },
       {
         dependsOn: shouldMountEfs
           ? [
-              loggingService,
-              s3Bucket,
-              efsAccessPoint,
-              waiter,
-              accessPointWaiter,
-            ]
+            loggingService,
+            s3Bucket,
+            efsAccessPoint,
+            waiter,
+            accessPointWaiter,
+          ]
           : [loggingService, s3Bucket],
       },
     );

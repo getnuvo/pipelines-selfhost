@@ -15,7 +15,6 @@ import { serializationConfigValue } from './utils/string';
 
 let app: web.WebApp;
 let appInsights: insights.Component;
-let customDomain;
 let customDomainDnsRecords;
 let databaseConnectionString;
 
@@ -568,16 +567,12 @@ export const run = () => {
           console.log(
             `   Note:  If your DNS provider doesn't support ALIAS/ANAME,`,
           );
-          console.log(
-            `          consider using a subdomain with CNAME instead\n`,
-          );
+          console.log(`          consider using a subdomain with CNAME instead\n`);
         }
 
         console.log('-'.repeat(80));
         console.log('\n✅ Action Required:');
-        console.log(
-          '   1. Go to your DNS provider (e.g., Cloudflare, Route53)',
-        );
+        console.log('   1. Go to your DNS provider (e.g., Cloudflare, Route53)');
         console.log('   2. Add the DNS records listed above');
         console.log('   3. Wait 5-10 minutes for DNS propagation');
         console.log('   4. Run `pulumi up` again to create the binding\n');
@@ -629,6 +624,11 @@ export const run = () => {
       name: 'AZURE_CONNECTION_STRING',
       value: storageConnectionString,
     },
+    { name: 'PUSHER_APP_ID', value: config.get('PUSHER_APP_ID') },
+    { name: 'PUSHER_KEY', value: config.get('PUSHER_KEY') },
+    { name: 'PUSHER_SECRET', value: config.get('PUSHER_SECRET') },
+    { name: 'BREVO_API_KEY', value: config.get('BREVO_API_KEY') },
+    { name: 'DP_LICENSE_KEY', value: config.require('INGESTRO_LICENSE_KEY') },
     {
       name: 'AZURE_ACCOUNT_KEY',
       value: getStorageAccountKeys.keys[0].value,
@@ -645,6 +645,10 @@ export const run = () => {
     {
       name: 'AZURE_PRIVATE_TOKEN',
       value: config.get('AZURE_PRIVATE_TOKEN') || 'ingestro-azure-secret',
+    },
+    {
+      name: 'SENDGRID_RECEIVER_SECRET_KEY',
+      value: config.get('sendgridReceiverSecretKey') || '',
     },
     // Optionally surface custom domain into app env (not required for binding)
     ...(customDomain ? [{ name: 'CUSTOM_DOMAIN', value: customDomain }] : []),
