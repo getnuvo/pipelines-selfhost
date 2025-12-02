@@ -605,7 +605,6 @@ export const initialLambdaFunctions = async (
       console.log('ℹ️  API Gateway configured with default domain. To use custom domain:');
       console.log('   1. Add "customDomain" config (e.g., "api.yourdomain.com")');
       console.log('   2. Optionally add "certificateArn" config with existing ACM certificate ARN');
-      console.log('   3. Or let Pulumi create a new certificate automatically');
     }
   }
   // ------------- END SETUP API GATEWAY -------------
