@@ -5,6 +5,7 @@ import { WaitForEfsTargets } from './efs-waiting-target';
 import { LambdaEniWait } from './eip-waiting';
 import { default as axios } from 'axios';
 import { initialMappingModule } from './mapping.deployment';
+import { Bucket } from '@pulumi/aws/s3';
 
 const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
@@ -61,16 +62,20 @@ const getHandler = (functionName: string) => {
 };
 
 const initialAPIGateway = async (managementFunction: any) => {
-  const endpoint = new apigateway.RestAPI(`${functionPrefix}-dp-self-hosted`, {
-    routes: [
-      {
-        path: '{route+}',
-        method: 'ANY',
-        eventHandler: managementFunction,
-      },
-    ],
-    stageName: 'prod',
-  }, { dependsOn: [managementFunction] });
+  const endpoint = new apigateway.RestAPI(
+    `${functionPrefix}-dp-self-hosted`,
+    {
+      routes: [
+        {
+          path: '{route+}',
+          method: 'ANY',
+          eventHandler: managementFunction,
+        },
+      ],
+      stageName: 'prod',
+    },
+    { dependsOn: [managementFunction] },
+  );
 
   endpoint.url.apply((url) => {
     console.log('API Gateway endpoint URL:', url);
@@ -91,9 +96,9 @@ export const initS3Bucket = async () => {
           allowedMethods: ['GET', 'PUT', 'POST', 'HEAD'],
           allowedOrigins: ['*'],
           allowedHeaders: ['*'],
-          exposeHeaders: ['Content-Range']
-        }
-      ]
+          exposeHeaders: ['Content-Range'],
+        },
+      ],
     });
   }
 };
@@ -159,6 +164,7 @@ export const initialScheduleService = async () => {
  */
 export const initialLambdaFunctions = async (
   databaseUrl: pulumi.Output<string>,
+  s3Bucket: Bucket,
 ) => {
   let managementFunction;
   let emailListenerFunction: aws.lambda.Function | undefined;
@@ -170,7 +176,6 @@ export const initialLambdaFunctions = async (
   } catch (e) {
     throw new Error('Unauthorized: unable to retrieve the function list');
   }
-  const s3Bucket = await initS3Bucket()
 
   const mappingModuleUrl = await initialMappingModule(dockerToken, s3Bucket);
 
@@ -317,38 +322,48 @@ export const initialLambdaFunctions = async (
   });
 
   // Custom EFS policy for Lambda
-  const lambdaEfsPolicy = new aws.iam.Policy(`${functionPrefix}-lambda-efs-specific-policy`, {
-    description:
-      'Allow Lambda to access only the specific EFS file system and access point',
-    policy: pulumi.all([efs.arn, efsAccessPoint.arn]).apply(([efsArn, apArn]) =>
-      JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Action: [
-              'elasticfilesystem:ClientMount',
-              'elasticfilesystem:ClientWrite',
+  const lambdaEfsPolicy = new aws.iam.Policy(
+    `${functionPrefix}-lambda-efs-specific-policy`,
+    {
+      description:
+        'Allow Lambda to access only the specific EFS file system and access point',
+      policy: pulumi
+        .all([efs.arn, efsAccessPoint.arn])
+        .apply(([efsArn, apArn]) =>
+          JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Action: [
+                  'elasticfilesystem:ClientMount',
+                  'elasticfilesystem:ClientWrite',
+                ],
+                Resource: [efsArn, apArn],
+              },
             ],
-            Resource: [efsArn, apArn],
-          },
-        ],
-      }),
-    ),
-  });
-  new aws.iam.RolePolicyAttachment(`${functionPrefix}-lambda-efs-access-policy`, {
-    role: awsIamRole.name,
-    policyArn: lambdaEfsPolicy.arn,
-  });
+          }),
+        ),
+    },
+  );
+  new aws.iam.RolePolicyAttachment(
+    `${functionPrefix}-lambda-efs-access-policy`,
+    {
+      role: awsIamRole.name,
+      policyArn: lambdaEfsPolicy.arn,
+    },
+  );
 
   // Wait for all EFS-dependent resources to be ready before creating Lambda functions
-  console.log('🔄 Ensuring EFS is fully ready before creating Lambda functions...');
+  console.log(
+    '🔄 Ensuring EFS is fully ready before creating Lambda functions...',
+  );
 
   for (let i = 0; i < functionUrls.length; i++) {
     const loggingService = new aws.cloudwatch.LogGroup(
       `${functionPrefix}-${functionUrls[i].name}-log`,
       {
-        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`
+        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`,
       },
     );
 
@@ -390,13 +405,14 @@ export const initialLambdaFunctions = async (
         },
         environment: {
           variables: {
+            APP_STAGE: 'prod',
             DATA_PIPELINE_DB_URI: databaseUrl,
             DATA_PIPELINE_DB_NAME: config.require('DATA_PIPELINE_DB_NAME'),
             S3_CONNECTOR_SECRET_KEY: config.require('S3_CONNECTOR_SECRET_KEY'),
             AWS_PROVIDER_REGION: config.require('AWS_REGION'),
             AWS_PROVIDER_KEY: config.require('AWS_ACCESS_KEY'),
             AWS_PROVIDER_SECRET: config.require('AWS_SECRET_KEY'),
-            AWS_S3_BUCKET: s3Bucket.bucket.apply(bucket=> bucket),
+            AWS_S3_BUCKET: s3Bucket.bucket.apply((bucket) => bucket),
             PUSHER_APP_ID: config.get('PUSHER_APP_ID') || '',
             PUSHER_KEY: config.get('PUSHER_KEY') || '',
             PUSHER_SECRET: config.get('PUSHER_SECRET') || '',
@@ -408,6 +424,7 @@ export const initialLambdaFunctions = async (
             BREVO_API_KEY: config.get('BREVO_API_KEY') || '',
             MAPPING_BASE_URL: mappingModuleUrl,
             DP_LICENSE_KEY: config.require('INGESTRO_LICENSE_KEY'),
+            CUSTOM_DOMAIN: config.get('customDomain') || '',
           },
         },
         ...(shouldMountEfs
@@ -421,7 +438,13 @@ export const initialLambdaFunctions = async (
       },
       {
         dependsOn: shouldMountEfs
-          ? [loggingService, s3Bucket, efsAccessPoint, waiter, accessPointWaiter]
+          ? [
+              loggingService,
+              s3Bucket,
+              efsAccessPoint,
+              waiter,
+              accessPointWaiter,
+            ]
           : [loggingService, s3Bucket],
       },
     );
@@ -444,24 +467,31 @@ export const initialLambdaFunctions = async (
   // Add S3 trigger for email-listener
   if (emailListenerFunction) {
     // Permission for S3 to invoke Lambda
-    const s3Permission = new aws.lambda.Permission('email-listener-s3-permission', {
-      action: 'lambda:InvokeFunction',
-      function: emailListenerFunction.name,
-      principal: 's3.amazonaws.com',
-      sourceArn: s3Bucket.arn,
-    });
+    const s3Permission = new aws.lambda.Permission(
+      `${functionPrefix}-email-listener-s3-permission`,
+      {
+        action: 'lambda:InvokeFunction',
+        function: emailListenerFunction.name,
+        principal: 's3.amazonaws.com',
+        sourceArn: s3Bucket.arn,
+      },
+    );
 
     // S3 notification for object created
-    new aws.s3.BucketNotification('email-listener-s3-notification', {
-      bucket: s3Bucket.id,
-      lambdaFunctions: [
-        {
-          lambdaFunctionArn: emailListenerFunction.arn,
-          events: ['s3:ObjectCreated:*'],
-          filterPrefix: 'emails/',
-        },
-      ],
-    }, { dependsOn: [s3Permission] });
+    new aws.s3.BucketNotification(
+      `${functionPrefix}-email-listener-s3-notification`,
+      {
+        bucket: s3Bucket.id,
+        lambdaFunctions: [
+          {
+            lambdaFunctionArn: emailListenerFunction.arn,
+            events: ['s3:ObjectCreated:*'],
+            filterPrefix: 'emails/',
+          },
+        ],
+      },
+      { dependsOn: [s3Permission] },
+    );
   }
 
   // ------------- SETUP EIP FOR LAMBDA -------------

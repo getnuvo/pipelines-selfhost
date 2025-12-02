@@ -1,7 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import {Bucket} from "@pulumi/aws/s3";
-import {Output} from "@pulumi/pulumi";
+import { Bucket } from '@pulumi/aws/s3';
+import { Output } from '@pulumi/pulumi';
 
 const config = new pulumi.Config();
 const functionPrefix = config.require('prefix');
@@ -14,12 +14,19 @@ const rootVolumeSize = config.getNumber('rootVolumeSize') || 30; // GiB
 const mappingLlmProvider = config.get('mappingLlmProvider') || 'AZURE';
 const mappingLlmTemperature = config.getNumber('mappingLlmTemperature') ?? 0;
 const mappingAzureOpenaiApiKey = config.get('mappingAzureOpenaiApiKey') || '';
-const mappingAzureOpenaiEndpoint = config.get('mappingAzureOpenaiEndpoint') || '';
-const mappingAzureOpenaiApiVersion = config.get('mappingAzureOpenaiApiVersion') || '2024-10-21';
-const mappingAzureOpenaiDeploymentName = config.get('mappingAzureOpenaiDeploymentName') || 'gpt-4o-mini';
-const mappingAwsBedrockModelId = config.get('mappingAwsBedrockModelId') || 'anthropic.claude-3-haiku-20240307-v1:0';
-const mappingAwsBedrockAccessKeyId = config.get('mappingAwsBedrockAccessKeyId') || '';
-const mappingAwsBedrockSecretAccessKey = config.get('mappingAwsBedrockSecretAccessKey') || '';
+const mappingAzureOpenaiEndpoint =
+  config.get('mappingAzureOpenaiEndpoint') || '';
+const mappingAzureOpenaiApiVersion =
+  config.get('mappingAzureOpenaiApiVersion') || '2024-10-21';
+const mappingAzureOpenaiDeploymentName =
+  config.get('mappingAzureOpenaiDeploymentName') || 'gpt-4o-mini';
+const mappingAwsBedrockModelId =
+  config.get('mappingAwsBedrockModelId') ||
+  'anthropic.claude-3-haiku-20240307-v1:0';
+const mappingAwsBedrockAccessKeyId =
+  config.get('mappingAwsBedrockAccessKeyId') || '';
+const mappingAwsBedrockSecretAccessKey =
+  config.get('mappingAwsBedrockSecretAccessKey') || '';
 const mappingAwsBedrockRegion = config.get('mappingAwsBedrockRegion') || '';
 const mappingS3Region = config.require('AWS_REGION');
 const mappingS3AccessKeyId = config.require('AWS_ACCESS_KEY');
@@ -31,7 +38,10 @@ const mappingBucketNamePipeline = config.get('AWS_S3_BUCKET');
  * @returns void
  * Main function to initialize mapping module instance
  */
-export const initialMappingModule = async (dockerToken: string, s3Bucket: Bucket) => {
+export const initialMappingModule = async (
+  dockerToken: string,
+  s3Bucket: Bucket,
+) => {
   const defaultVpc = pulumi.output(aws.ec2.getVpc({ default: true }));
   const defaultSubnetIds = defaultVpc.id.apply((vpcId) =>
     aws.ec2.getSubnets({
@@ -93,7 +103,7 @@ export const initialMappingModule = async (dockerToken: string, s3Bucket: Bucket
 
   const instanceName = `${functionPrefix}-ingestro-mapping-module`;
   const instance = new aws.ec2.Instance(
-      instanceName,
+    instanceName,
     {
       ami: ami.id,
       instanceType,
