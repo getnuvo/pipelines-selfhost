@@ -514,11 +514,60 @@ export const run = () => {
   // ---------------- CUSTOM DOMAIN + OPTIONAL SSL ----------------
   // Optional custom domain config
   const customDomain = config.get('customDomain');
-  let customDomainBinding: web.WebAppHostNameBinding | undefined;
-
   if (customDomain) {
-    // 1. Create basic host name binding (no SSL yet). Azure requires TXT verification + DNS mapping ready.
-    customDomainBinding = new web.WebAppHostNameBinding(
+    pulumi
+      .all([customDomain, app.defaultHostName, app.customDomainVerificationId])
+      .apply(([domain, defaultHost, verificationId]) => {
+        const labels = domain.split('.');
+        const isSubdomain = labels.length > 2;
+        const txtRelative = isSubdomain ? `asuid.${labels[0]}` : 'asuid';
+        const hostRelative = isSubdomain
+          ? labels.slice(0, labels.length - 2).join('.')
+          : '@';
+
+        console.log('\n' + '='.repeat(80));
+        console.log('🌐 CUSTOM DOMAIN SETUP REQUIRED');
+        console.log('='.repeat(80));
+        console.log(
+          '\n⚠️  IMPORTANT: Create these DNS records BEFORE the binding is applied:\n',
+        );
+        console.log(`📋 Domain: ${domain}`);
+        console.log(`🔗 Target: ${defaultHost}\n`);
+        console.log('Required DNS Records:');
+        console.log('-'.repeat(80));
+        console.log(
+          `\n1️⃣  TXT Record (Domain Verification - REQUIRED FIRST)`,
+        );
+        console.log(`   Name:  ${txtRelative}`);
+        console.log(`   Value: ${verificationId}`);
+        console.log(`   TTL:   3600\n`);
+
+        if (isSubdomain) {
+          console.log(`2️⃣  CNAME Record (Domain Mapping)`);
+          console.log(`   Name:  ${hostRelative}`);
+          console.log(`   Value: ${defaultHost}`);
+          console.log(`   TTL:   3600\n`);
+        } else {
+          console.log(`2️⃣  ALIAS/ANAME Record (Domain Mapping)`);
+          console.log(`   Name:  @`);
+          console.log(`   Value: ${defaultHost}`);
+          console.log(`   TTL:   3600`);
+          console.log(
+            `   Note:  If your DNS provider doesn't support ALIAS/ANAME,`,
+          );
+          console.log(`          consider using a subdomain with CNAME instead\n`);
+        }
+
+        console.log('-'.repeat(80));
+        console.log('\n✅ Action Required:');
+        console.log('   1. Go to your DNS provider (e.g., Cloudflare, Route53)');
+        console.log('   2. Add the DNS records listed above');
+        console.log('   3. Wait 5-10 minutes for DNS propagation');
+        console.log('   4. Run `pulumi up` again to create the binding\n');
+        console.log('='.repeat(80) + '\n');
+      });
+
+    new web.WebAppHostNameBinding(
       `${prefix}-custom-domain-binding`,
       {
         name: app.name,
