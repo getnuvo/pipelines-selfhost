@@ -14,6 +14,8 @@ let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
 const codePipelineVersion = config.get('version') || '1.0.0';
 const existingS3Bucket = config.get('AWS_S3_BUCKET');
+const customDomain = config.get('customDomain');
+const certificateArn = config.get('certificateArn');
 let dockerToken: string;
 let s3BucketName: string;
 
@@ -61,7 +63,7 @@ const getHandler = (functionName: string) => {
   }
 };
 
-const initialAPIGateway = async (managementFunction: any) => {
+const initialAPIGateway = (managementFunction: any) => {
   const endpoint = new apigateway.RestAPI(
     `${functionPrefix}-dp-self-hosted`,
     {
@@ -77,11 +79,65 @@ const initialAPIGateway = async (managementFunction: any) => {
     { dependsOn: [managementFunction] },
   );
 
+  // Log the default endpoint URL
   endpoint.url.apply((url) => {
-    console.log('API Gateway endpoint URL:', url);
+    console.log('API Gateway default endpoint URL:', url);
   });
 
-  return endpoint;
+  // Set up custom domain if configured
+  if (customDomain) {
+    if (!certificateArn) {
+      throw new Error(`Certificate ARN is required when using custom domain. Please provide 'certificateArn' config value with a valid ACM certificate ARN for domain: ${customDomain}`);
+    }
+
+    console.log(`🔧 Setting up custom domain: ${customDomain}`);
+    console.log('📜 Using provided certificate ARN');
+
+    const certArn = pulumi.output(certificateArn);
+
+    const domainName = new aws.apigateway.DomainName(`${functionPrefix}-custom-domain`, {
+      domainName: customDomain,
+      regionalCertificateArn: certArn,
+      securityPolicy: 'TLS_1_2',
+      endpointConfiguration: {
+        types: 'REGIONAL',
+      },
+    });
+
+    const basePathMapping = new aws.apigateway.BasePathMapping(`${functionPrefix}-base-path-mapping`, {
+      restApi: endpoint.api.id,
+      stageName: endpoint.stage.stageName,
+      domainName: domainName.domainName,
+    }, { dependsOn: [domainName] });
+
+    domainName.regionalDomainName.apply((regionalDomain) => {
+      console.log('========================================');
+      console.log('🌐 Custom Domain Configuration Complete');
+      console.log('========================================');
+      console.log('');
+      console.log('📋 Add this CNAME record to your DNS provider:');
+      console.log(`   Name:  ${customDomain}`);
+      console.log(`   Type:  CNAME`);
+      console.log(`   Value: ${regionalDomain}`);
+      console.log(`   TTL:   300 (or your preferred value)`);
+      console.log('');
+      console.log('⚠️  Important DNS settings:');
+      console.log('   - If using Cloudflare: Set Proxy to "DNS only" (grey cloud)');
+      console.log('   - If using other providers: Just add as a standard CNAME record');
+      console.log('');
+      console.log(`✅ Your API will be available at: https://${customDomain}`);
+      console.log('   (after DNS propagation, usually 5-30 minutes)');
+      console.log('========================================');
+    });
+
+    domainName.domainName.apply((domain) => {
+      console.log(`✅ Custom domain configured: https://${domain}`);
+    });
+
+    return { endpoint, domainName, basePathMapping };
+  }
+
+  return { endpoint };
 };
 
 export const initS3Bucket = async () => {
@@ -429,22 +485,22 @@ export const initialLambdaFunctions = async (
         },
         ...(shouldMountEfs
           ? {
-              fileSystemConfig: {
-                arn: efsAccessPoint.arn,
-                localMountPath: '/mnt/hyperformula-column',
-              },
-            }
+            fileSystemConfig: {
+              arn: efsAccessPoint.arn,
+              localMountPath: '/mnt/hyperformula-column',
+            },
+          }
           : {}),
       },
       {
         dependsOn: shouldMountEfs
           ? [
-              loggingService,
-              s3Bucket,
-              efsAccessPoint,
-              waiter,
-              accessPointWaiter,
-            ]
+            loggingService,
+            s3Bucket,
+            efsAccessPoint,
+            waiter,
+            accessPointWaiter,
+          ]
           : [loggingService, s3Bucket],
       },
     );
@@ -534,7 +590,18 @@ export const initialLambdaFunctions = async (
 
   // ------------- SETUP API GATEWAY ---------------
   if (managementFunction) {
-    await initialAPIGateway(managementFunction);
+    initialAPIGateway(managementFunction);
+
+    if (customDomain) {
+      console.log('✅ API Gateway configured with custom domain');
+      console.log('📝 Next steps:');
+      console.log('   1. Add the CNAME record to your DNS provider (details shown above)');
+      console.log('   2. Your API will be available at your custom domain after DNS propagation');
+    } else {
+      console.log('ℹ️  API Gateway configured with default domain. To use custom domain:');
+      console.log('   1. Add "customDomain" config (e.g., "api.yourdomain.com")');
+      console.log('   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).');
+    }
   }
   // ------------- END SETUP API GATEWAY -------------
 

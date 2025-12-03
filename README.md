@@ -31,10 +31,10 @@ Before starting, ensure that you have the following:
 - An **AWS account** with permissions to manage EC2, S3, and DocumentDB.
 - A **DP License Key** (available from your [Ingestro platform](https://dashboard.ingestro.com/dashboard)).
 - A local machine with:
-    - Node.js (v16+)
-    - npm (v8+)
-    - AWS CLI (v2)
-    - Pulumi CLI (v3+)
+  - Node.js (v16+)
+  - npm (v8+)
+  - AWS CLI (v2)
+  - Pulumi CLI (v3+)
 
 ---
 
@@ -137,29 +137,29 @@ After initialization, a file named `Pulumi.ingestro-pipelines.yaml` is created i
 
 ---
 
-### 6.  Edit Configuration
+### 6. Edit Configuration
 
 Open `Pulumi.ingestro-pipelines.yaml` and update the following keys as needed:
 
 ```yaml
 encryptionsalt: <keep as is>
 config:
-  aws:region: 'eu-central-1'             # Must match your AWS profile region
-  aws:profile: 'ingestro-pipelines'      # Comment out if using the default AWS profile
-  pipelines-self-host:provider: 'aws'   
-  pipelines-self-host:version: '0.29.4'  # Check release notes for available versions
+  aws:region: 'eu-central-1' # Must match your AWS profile region
+  aws:profile: 'ingestro-pipelines' # Comment out if using the default AWS profile
+  pipelines-self-host:provider: 'aws'
+  pipelines-self-host:version: '0.29.4' # Check release notes for available versions
   pipelines-self-host:prefix: '<YOUR_ENVIRENMENT_TAG>'
-  
+
   # Ingestro Settings
   pipelines-self-host:INGESTRO_LICENSE_KEY: '<YOUR_LICENSE_KEY>'
   pipelines-self-host:DATA_PIPELINE_DB_NAME: 'ingestro'
   pipelines-self-host:S3_CONNECTOR_SECRET_KEY: 'vbeDWPY67Ip7JfcVdbDi2Yg4BcLAbgTz4af87040XVIjF1FiFp'
-  
+
   # AWS S3 Configuration
   pipelines-self-host:AWS_REGION: 'eu-central-1'
   pipelines-self-host:AWS_ACCESS_KEY: '<YOUR_AWS_ACCESS_KEY>'
   pipelines-self-host:AWS_SECRET_KEY: '<YOUR_AWS_SECRET_KEY>'
-  
+
   # Document DB Setup
   pipelines-self-host:docdbUsername: 'master_ingestro'
   pipelines-self-host:docdbPassword: '<SET_A_SECURE_PASSWORD>'
@@ -169,16 +169,16 @@ config:
   pipelines-self-host:dockerHubUsername: 'getnuvo'
   pipelines-self-host:ec2InstanceType: 't3.large'
   pipelines-self-host:rootVolumeSize: 30
-  
-  # ---- LLM CONFIGURATION ---- 
+
+  # ---- LLM CONFIGURATION ----
   pipelines-self-host:mappingLlmProvider: 'AZURE' # **NOTE:** You can select between AZURE for using an GPT model via Azure OpenAI or BEDROCK for using a Claude model via AWS Bedrock
   pipelines-self-host:mappingLlmTemperature: 0.2
-  
+
   # ---- Azure OpenAI Configuration ----
   pipelines-self-host:mappingAzureOpenaiApiKey: '<YOUR_API_KEY>'
   pipelines-self-host:mappingAzureOpenaiEndpoint: '<YOUR_API_ENDPOINT>'
   pipelines-self-host:mappingAzureOpenaiApiVersion: '<YOUR_API_VERSION>'
-  pipelines-self-host:mappingAzureOpenaiDeploymentName: 'gpt-4o-mini' # **NOTE:** To guarantee the best balance between mapping accuracy and processing speed, we recommend using the GPT 4o mini model 
+  pipelines-self-host:mappingAzureOpenaiDeploymentName: 'gpt-4o-mini' # **NOTE:** To guarantee the best balance between mapping accuracy and processing speed, we recommend using the GPT 4o mini model
 
   # ---- AWS Bedrock Configuration ----
   pipelines-self-host:mappingAwsBedrockModelId: '<YOUR_MODEL_ID>' # **NOTE:** To guarantee the best balance between mapping accuracy and processing speed, we recommend using the Claude Haiku 3 model via anthropic.claude-3-haiku-20240307-v1:0
@@ -194,6 +194,12 @@ config:
 ---
 
 ### 7. Deploy the Stack
+
+<asset>
+
+> 💡 If you want to configure the Custom Domain, first follow our [Custom Domain Setup Guide](docs/custom-domain-setup.md).
+
+</asset>
 
 Once the configuration is complete, deploy the stack with:
 
@@ -234,7 +240,7 @@ Update the ingestro version in your pulumi config
 encryptionsalt: XXXX
 config:
   ...
-  pipeline-self-host:version: 'XXX' ## Change this 
+  pipeline-self-host:version: 'XXX' ## Change this
   ...
 ```
 
@@ -262,13 +268,13 @@ You’ll be prompted to confirm. This will decommission all AWS resources create
 
 ### 10. Troubleshooting and Tips
 
-| Issue | Possible Cause | Solution |
-| --- | --- | --- |
-| **Pulumi error: missing region/profile** | AWS CLI region not matching Pulumi config | Ensure both have the same `eu-central-1` region |
-| **Authentication failure** | AWS credentials not set or expired | Run `aws configure` again |
-| **“Access Denied” in Pulumi** | IAM permissions insufficient | Use a user with `AdministratorAccess` during initial deployment |
-| **Deployment timeout** | Networking or VPC misconfiguration | Verify security group and VPC settings in AWS console |
-| **Missing password/keys in config** | Empty placeholders in YAML | Double-check all secrets before running `pulumi up` |
+| Issue                                    | Possible Cause                            | Solution                                                        |
+| ---------------------------------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| **Pulumi error: missing region/profile** | AWS CLI region not matching Pulumi config | Ensure both have the same `eu-central-1` region                 |
+| **Authentication failure**               | AWS credentials not set or expired        | Run `aws configure` again                                       |
+| **“Access Denied” in Pulumi**            | IAM permissions insufficient              | Use a user with `AdministratorAccess` during initial deployment |
+| **Deployment timeout**                   | Networking or VPC misconfiguration        | Verify security group and VPC settings in AWS console           |
+| **Missing password/keys in config**      | Empty placeholders in YAML                | Double-check all secrets before running `pulumi up`             |
 
 ---
 
