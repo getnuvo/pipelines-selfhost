@@ -18,7 +18,7 @@ let dockerToken: string;
 let s3BucketName: string;
 
 const fetchFunctionList = async () => {
-  const url = `https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment`;
+  const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
   const body = {
     version: codePipelineVersion,
     provider: 'AWS',
