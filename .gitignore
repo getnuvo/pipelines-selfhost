@@ -18,3 +18,5 @@ coverage/
 *.log
 temp/*
 !temp/.gitkeep
+Pulumi.*.*
+!Pulumi.dev.yaml.example
