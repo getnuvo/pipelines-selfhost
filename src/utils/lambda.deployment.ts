@@ -63,7 +63,7 @@ const getHandler = (functionName: string) => {
   }
 };
 
-const initialAPIGateway = async (managementFunction: any) => {
+const initialAPIGateway = (managementFunction: any) => {
   const endpoint = new apigateway.RestAPI(
     `${functionPrefix}-dp-self-hosted`,
     {
