@@ -9,9 +9,10 @@ interface IWaitForEfsInputs {
 
 class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
   async create(inputs: any): Promise<pulumi.dynamic.CreateResult> {
-    const fileSystemId = inputs.fileSystemId;;
+    const fileSystemId = inputs.fileSystemId;
     const timeout = (inputs.timeoutSeconds || 300) * 1000;
-    const stabilizationMs = ((inputs.stabilizationSeconds ?? 30) as number) * 1000;
+    const stabilizationMs =
+      ((inputs.stabilizationSeconds ?? 30) as number) * 1000;
 
     const config = new pulumi.Config('aws');
     const awsProfile = config.get('profile');
@@ -38,7 +39,9 @@ class WaitForEfsProvider implements pulumi.dynamic.ResourceProvider {
       );
 
       if (allAvailable) {
-        console.log(`✅ All EFS mount targets are available. Adding ${stabilizationMs / 1000}s buffer...`);
+        console.log(
+          `✅ All EFS mount targets are available. Adding ${stabilizationMs / 1000}s buffer...`,
+        );
         await new Promise((res) => setTimeout(res, stabilizationMs));
         console.log('✅ EFS mount targets fully ready for Lambda functions.');
         break;

@@ -6,10 +6,7 @@ import {
 
 class LambdaEniWaitProvider implements pulumi.dynamic.ResourceProvider {
   async create(inputs: any): Promise<pulumi.dynamic.CreateResult> {
-    const {
-      securityGroupId,
-      subnetIds,
-    } = inputs;
+    const { securityGroupId, subnetIds } = inputs;
     const timeoutSeconds = 300;
     const pollSeconds = 5;
     const expected = subnetIds.length;
