@@ -495,12 +495,12 @@ export const initialLambdaFunctions = async (
       {
         dependsOn: shouldMountEfs
           ? [
-              loggingService,
-              s3Bucket,
-              efsAccessPoint,
-              waiter,
-              accessPointWaiter,
-            ]
+            loggingService,
+            s3Bucket,
+            efsAccessPoint,
+            waiter,
+            accessPointWaiter,
+          ]
           : [loggingService, s3Bucket],
       },
     );
@@ -595,12 +595,8 @@ export const initialLambdaFunctions = async (
     if (customDomain) {
       console.log('✅ API Gateway configured with custom domain');
       console.log('📝 Next steps:');
-      if (!certificateArn) {
-        console.log('   1. Add the DNS validation records to Cloudflare (shown above)');
-        console.log('   2. Wait for certificate validation');
-      }
-      console.log('   3. Add the CNAME record to Cloudflare (shown above)');
-      console.log('   4. Your API will be available at your custom domain');
+      console.log('   1. Add the CNAME record to your DNS provider (details shown above)');
+      console.log('   2. Your API will be available at your custom domain after DNS propagation');
     } else {
       console.log('ℹ️  API Gateway configured with default domain. To use custom domain:');
       console.log('   1. Add "customDomain" config (e.g., "api.yourdomain.com")');
