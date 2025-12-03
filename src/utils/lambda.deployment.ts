@@ -600,7 +600,7 @@ export const initialLambdaFunctions = async (
     } else {
       console.log('ℹ️  API Gateway configured with default domain. To use custom domain:');
       console.log('   1. Add "customDomain" config (e.g., "api.yourdomain.com")');
-      console.log('   2. Optionally add "certificateArn" config with existing ACM certificate ARN');
+      console.log('   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).');
     }
   }
   // ------------- END SETUP API GATEWAY -------------
