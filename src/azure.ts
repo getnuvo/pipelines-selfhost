@@ -225,6 +225,26 @@ export const run = () => {
       }),
     );
 
+  const blobServiceCors = new storage.BlobServiceProperties(
+    `${prefix}-blob-service-cors`,
+    {
+      accountName: storageAccount.name,
+      resourceGroupName: resourceGroup.name,
+      blobServicesName: 'default',
+      cors: {
+        corsRules: [
+          {
+            allowedOrigins: ['*'],
+            allowedMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+            allowedHeaders: ['*'],
+            exposedHeaders: ['*'],
+            maxAgeInSeconds: 3600,
+          },
+        ],
+      },
+    },
+  );
+
   // Function code archives will be stored in this container.
   const codeContainer = new storage.BlobContainer(`${prefix}-zips`, {
     resourceGroupName: resourceGroup.name,
@@ -390,22 +410,17 @@ export const run = () => {
       value: serializationConfigValue(mappingAwsBedrockRegion),
     },
     {
-      name: 'MAPPING_S3_REGION',
-      value: serializationConfigValue(mappingS3Region),
+      name: 'AZURE_STORAGE_ACCOUNT_NAME',
+      value: storageAccount.name,
     },
     {
-      name: 'MAPPING_S3_ACCESS_KEY_ID',
-      value: serializationConfigValue(mappingS3AccessKeyId),
+      name: 'AZURE_STORAGE_ACCOUNT_KEY',
+      value: getStorageAccountKeys.keys[0].value,
     },
     {
-      name: 'MAPPING_S3_SECRET_ACCESS_KEY',
-      value: serializationConfigValue(mappingS3SecretAccessKey),
+      name: 'AZURE_BLOB_CONTAINER',
+      value: dataContainer.name,
     },
-    {
-      name: 'MAPPING_BUCKET_NAME_PIPELINE',
-      value: serializationConfigValue(mappingBucketNamePipeline),
-    },
-    // TODO: add AZURE BLOB STORAGE SETTINGS
     ...Object.entries(mappingModuleEnv).map(([name, value]) => ({
       name,
       value,
@@ -535,9 +550,7 @@ export const run = () => {
         console.log(`🔗 Target: ${defaultHost}\n`);
         console.log('Required DNS Records:');
         console.log('-'.repeat(80));
-        console.log(
-          `\n1️⃣  TXT Record (Domain Verification - REQUIRED FIRST)`,
-        );
+        console.log(`\n1️⃣  TXT Record (Domain Verification - REQUIRED FIRST)`);
         console.log(`   Name:  ${txtRelative}`);
         console.log(`   Value: ${verificationId}`);
         console.log(`   TTL:   3600\n`);
@@ -555,12 +568,16 @@ export const run = () => {
           console.log(
             `   Note:  If your DNS provider doesn't support ALIAS/ANAME,`,
           );
-          console.log(`          consider using a subdomain with CNAME instead\n`);
+          console.log(
+            `          consider using a subdomain with CNAME instead\n`,
+          );
         }
 
         console.log('-'.repeat(80));
         console.log('\n✅ Action Required:');
-        console.log('   1. Go to your DNS provider (e.g., Cloudflare, Route53)');
+        console.log(
+          '   1. Go to your DNS provider (e.g., Cloudflare, Route53)',
+        );
         console.log('   2. Add the DNS records listed above');
         console.log('   3. Wait 5-10 minutes for DNS propagation');
         console.log('   4. Run `pulumi up` again to create the binding\n');
@@ -605,12 +622,16 @@ export const run = () => {
     },
     {
       name: 'AZURE_STORAGE_CONTAINER_NAME',
-      value: dataContainer.name.apply((name) => name),
+      value: dataContainer.name,
     },
     { name: 'AZURE_ACCOUNT_NAME', value: storageAccount.name },
     {
       name: 'AZURE_CONNECTION_STRING',
       value: storageConnectionString,
+    },
+    {
+      name: 'AZURE_ACCOUNT_KEY',
+      value: getStorageAccountKeys.keys[0].value,
     },
     { name: 'PUSHER_APP_ID', value: config.get('PUSHER_APP_ID') },
     { name: 'PUSHER_KEY', value: config.get('PUSHER_KEY') },
@@ -620,27 +641,6 @@ export const run = () => {
     {
       name: 'AZURE_FUNCTION_BASE_URL',
       value: functionAppUrl,
-    },
-    // TODO: remove AWS settings
-    {
-      name: 'STORAGE_PROVIDER_ENVIRONMENT',
-      value: 'AWS',
-    },
-    {
-      name: 'AWS_PROVIDER_REGION',
-      value: config.require('AWS_REGION'),
-    },
-    {
-      name: 'AWS_PROVIDER_KEY',
-      value: config.require('AWS_ACCESS_KEY'),
-    },
-    {
-      name: 'AWS_PROVIDER_SECRET',
-      value: config.require('AWS_SECRET_KEY'),
-    },
-    {
-      name: 'AWS_S3_BUCKET',
-      value: config.require('AWS_S3_BUCKET'),
     },
     // Optionally surface custom domain into app env (not required for binding)
     ...(customDomain ? [{ name: 'CUSTOM_DOMAIN', value: customDomain }] : []),

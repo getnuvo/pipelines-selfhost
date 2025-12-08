@@ -1,37 +1,37 @@
 {
   "headers": "Received: by mx0047p1mdw1.sendgrid.net with SMTP id 6FxMq4aq0Y Wed, 02 Dec 2025 10:30:45 +0000 (UTC)\nDate: Wed, 02 Dec 2025 10:30:45 +0000\nFrom: John Doe <john.doe@example.com>\nTo: receiver@yourdomain.com\nMessage-ID: <abc123@example.com>\nSubject: Invoice and Documents\nMime-Version: 1.0\nContent-Type: multipart/mixed; boundary=\"----=_Part_123_456.789\"",
-  
+
   "dkim": "{@example.com : pass}",
-  
+
   "email": "receiver@yourdomain.com",
-  
+
   "to": "receiver@yourdomain.com",
-  
+
   "cc": "manager@yourdomain.com",
-  
+
   "from": "John Doe <john.doe@example.com>",
-  
+
   "sender_ip": "192.168.1.100",
-  
+
   "spam_report": "{Spam detection software, running on the system \"mail.example.com\"}",
-  
+
   "envelope": "{\"to\":[\"receiver@yourdomain.com\"],\"from\":\"john.doe@example.com\"}",
-  
+
   "subject": "Invoice and Documents",
-  
+
   "spam_score": "0.1",
-  
+
   "charsets": "{\"to\":\"UTF-8\",\"html\":\"UTF-8\",\"subject\":\"UTF-8\",\"from\":\"UTF-8\",\"text\":\"UTF-8\"}",
-  
+
   "SPF": "pass",
-  
+
   "text": "Hi,\n\nPlease find attached the invoice and supporting documents.\n\nBest regards,\nJohn Doe",
-  
+
   "html": "<html><body><p>Hi,</p><p>Please find attached the invoice and supporting documents.</p><p>Best regards,<br>John Doe</p></body></html>",
-  
+
   "attachment-info": "{\"attachment1\":{\"filename\":\"invoice-2025.pdf\",\"type\":\"application/pdf\",\"charset\":\"UTF-8\"},\"attachment2\":{\"filename\":\"receipt.png\",\"type\":\"image/png\",\"charset\":\"UTF-8\"}}",
-  
+
   "attachment1": "base64_encoded_pdf_content_here...",
-  
+
   "attachment2": "base64_encoded_image_content_here..."
 }
