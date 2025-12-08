@@ -65,7 +65,9 @@ const initialAPIGateway = (managementFunction: any) => {
   // Set up custom domain if configured
   if (customDomain) {
     if (!certificateArn) {
-      throw new Error(`Certificate ARN is required when using custom domain. Please provide 'certificateArn' config value with a valid ACM certificate ARN for domain: ${customDomain}`);
+      throw new Error(
+        `Certificate ARN is required when using custom domain. Please provide 'certificateArn' config value with a valid ACM certificate ARN for domain: ${customDomain}`,
+      );
     }
 
     console.log(`🔧 Setting up custom domain: ${customDomain}`);
@@ -73,20 +75,27 @@ const initialAPIGateway = (managementFunction: any) => {
 
     const certArn = pulumi.output(certificateArn);
 
-    const domainName = new aws.apigateway.DomainName(`${functionPrefix}-custom-domain`, {
-      domainName: customDomain,
-      regionalCertificateArn: certArn,
-      securityPolicy: 'TLS_1_2',
-      endpointConfiguration: {
-        types: 'REGIONAL',
+    const domainName = new aws.apigateway.DomainName(
+      `${functionPrefix}-custom-domain`,
+      {
+        domainName: customDomain,
+        regionalCertificateArn: certArn,
+        securityPolicy: 'TLS_1_2',
+        endpointConfiguration: {
+          types: 'REGIONAL',
+        },
       },
-    });
+    );
 
-    const basePathMapping = new aws.apigateway.BasePathMapping(`${functionPrefix}-base-path-mapping`, {
-      restApi: endpoint.api.id,
-      stageName: endpoint.stage.stageName,
-      domainName: domainName.domainName,
-    }, { dependsOn: [domainName] });
+    const basePathMapping = new aws.apigateway.BasePathMapping(
+      `${functionPrefix}-base-path-mapping`,
+      {
+        restApi: endpoint.api.id,
+        stageName: endpoint.stage.stageName,
+        domainName: domainName.domainName,
+      },
+      { dependsOn: [domainName] },
+    );
 
     domainName.regionalDomainName.apply((regionalDomain) => {
       console.log('========================================');
@@ -100,8 +109,12 @@ const initialAPIGateway = (managementFunction: any) => {
       console.log(`   TTL:   300 (or your preferred value)`);
       console.log('');
       console.log('⚠️  Important DNS settings:');
-      console.log('   - If using Cloudflare: Set Proxy to "DNS only" (grey cloud)');
-      console.log('   - If using other providers: Just add as a standard CNAME record');
+      console.log(
+        '   - If using Cloudflare: Set Proxy to "DNS only" (grey cloud)',
+      );
+      console.log(
+        '   - If using other providers: Just add as a standard CNAME record',
+      );
       console.log('');
       console.log(`✅ Your API will be available at: https://${customDomain}`);
       console.log('   (after DNS propagation, usually 5-30 minutes)');
@@ -464,22 +477,22 @@ export const initialLambdaFunctions = async (
         },
         ...(shouldMountEfs
           ? {
-            fileSystemConfig: {
-              arn: efsAccessPoint.arn,
-              localMountPath: '/mnt/hyperformula-column',
-            },
-          }
+              fileSystemConfig: {
+                arn: efsAccessPoint.arn,
+                localMountPath: '/mnt/hyperformula-column',
+              },
+            }
           : {}),
       },
       {
         dependsOn: shouldMountEfs
           ? [
-            loggingService,
-            s3Bucket,
-            efsAccessPoint,
-            waiter,
-            accessPointWaiter,
-          ]
+              loggingService,
+              s3Bucket,
+              efsAccessPoint,
+              waiter,
+              accessPointWaiter,
+            ]
           : [loggingService, s3Bucket],
       },
     );
@@ -574,12 +587,22 @@ export const initialLambdaFunctions = async (
     if (customDomain) {
       console.log('✅ API Gateway configured with custom domain');
       console.log('📝 Next steps:');
-      console.log('   1. Add the CNAME record to your DNS provider (details shown above)');
-      console.log('   2. Your API will be available at your custom domain after DNS propagation');
+      console.log(
+        '   1. Add the CNAME record to your DNS provider (details shown above)',
+      );
+      console.log(
+        '   2. Your API will be available at your custom domain after DNS propagation',
+      );
     } else {
-      console.log('ℹ️  API Gateway configured with default domain. To use custom domain:');
-      console.log('   1. Add "customDomain" config (e.g., "api.yourdomain.com")');
-      console.log('   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).');
+      console.log(
+        'ℹ️  API Gateway configured with default domain. To use custom domain:',
+      );
+      console.log(
+        '   1. Add "customDomain" config (e.g., "api.yourdomain.com")',
+      );
+      console.log(
+        '   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).',
+      );
     }
   }
   // ------------- END SETUP API GATEWAY -------------
