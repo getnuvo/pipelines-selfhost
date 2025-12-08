@@ -642,6 +642,10 @@ export const run = () => {
       name: 'AZURE_FUNCTION_BASE_URL',
       value: functionAppUrl,
     },
+    {
+      name: 'AZURE_PRIVATE_TOKEN',
+      value: config.get('AZURE_PRIVATE_TOKEN') || 'ingestro-azure-secret',
+    },
     // Optionally surface custom domain into app env (not required for binding)
     ...(customDomain ? [{ name: 'CUSTOM_DOMAIN', value: customDomain }] : []),
   ];
