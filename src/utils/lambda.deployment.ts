@@ -294,8 +294,7 @@ export const initialLambdaFunctions = async (
   const efs = new aws.efs.FileSystem(`${functionPrefix}-lambda-efs`, {
     creationToken: `${functionPrefix}-lambda-efs-token`,
     performanceMode: 'generalPurpose',
-    throughputMode: 'provisioned',
-    provisionedThroughputInMibps: 100,
+    throughputMode: 'elastic',
     encrypted: true,
     tags: {
       Name: `${functionPrefix}-lambda-efs`,
