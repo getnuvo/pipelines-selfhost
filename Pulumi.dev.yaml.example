@@ -75,3 +75,10 @@ config:
   dp-self-hosted-azure:mappingS3AccessKeyId: ""                 # --secret recommended
   dp-self-hosted-azure:mappingS3SecretAccessKey: ""             # --secret recommended
   dp-self-hosted-azure:mappingBucketNamePipeline: ""
+
+  # In the case that need to custom the domain AWS/AZURE
+  pipeline-self-host:customDomain: ""
+  # In the case that need to custom the domain for AWS needed to add
+  pipeline-self-host:certificateArn: ""
+  # [Optional] In the case uses Sendgrid as an email provider and to receive email attachment should add some secret key to secure the endpoint
+  pipeline-self-host:sendgridReceiverSecretKey: ""

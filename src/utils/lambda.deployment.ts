@@ -3,42 +3,20 @@ import * as aws from '@pulumi/aws';
 import * as apigateway from '@pulumi/aws-apigateway';
 import { WaitForEfsTargets } from './efs-waiting-target';
 import { LambdaEniWait } from './eip-waiting';
-import { default as axios } from 'axios';
 import { initialMappingModule } from './mapping.deployment';
 import { Bucket } from '@pulumi/aws/s3';
+import { fetchFunctionList } from './ingestro';
 
 const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
-const codePipelineVersion = config.get('version') || '1.0.0';
 const existingS3Bucket = config.get('AWS_S3_BUCKET');
 const customDomain = config.get('customDomain');
 const certificateArn = config.get('certificateArn');
 let dockerToken: string;
 let s3BucketName: string;
-
-const fetchFunctionList = async () => {
-  const url = `https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`;
-  const body = {
-    version: codePipelineVersion,
-    provider: 'AWS',
-    license_key: config.require('INGESTRO_LICENSE_KEY'),
-  };
-
-  try {
-    const response = await axios.post(url, body);
-    dockerToken = response.data.docker_key;
-    return response.data as {
-      functions: { name: string; url: string }[];
-      docker_key: string;
-    };
-  } catch (error) {
-    console.error('Error fetching function list:', error.response.data);
-    throw error;
-  }
-};
 
 const getHandler = (functionName: string) => {
   switch (functionName) {
@@ -87,7 +65,9 @@ const initialAPIGateway = (managementFunction: any) => {
   // Set up custom domain if configured
   if (customDomain) {
     if (!certificateArn) {
-      throw new Error(`Certificate ARN is required when using custom domain. Please provide 'certificateArn' config value with a valid ACM certificate ARN for domain: ${customDomain}`);
+      throw new Error(
+        `Certificate ARN is required when using custom domain. Please provide 'certificateArn' config value with a valid ACM certificate ARN for domain: ${customDomain}`,
+      );
     }
 
     console.log(`🔧 Setting up custom domain: ${customDomain}`);
@@ -95,20 +75,27 @@ const initialAPIGateway = (managementFunction: any) => {
 
     const certArn = pulumi.output(certificateArn);
 
-    const domainName = new aws.apigateway.DomainName(`${functionPrefix}-custom-domain`, {
-      domainName: customDomain,
-      regionalCertificateArn: certArn,
-      securityPolicy: 'TLS_1_2',
-      endpointConfiguration: {
-        types: 'REGIONAL',
+    const domainName = new aws.apigateway.DomainName(
+      `${functionPrefix}-custom-domain`,
+      {
+        domainName: customDomain,
+        regionalCertificateArn: certArn,
+        securityPolicy: 'TLS_1_2',
+        endpointConfiguration: {
+          types: 'REGIONAL',
+        },
       },
-    });
+    );
 
-    const basePathMapping = new aws.apigateway.BasePathMapping(`${functionPrefix}-base-path-mapping`, {
-      restApi: endpoint.api.id,
-      stageName: endpoint.stage.stageName,
-      domainName: domainName.domainName,
-    }, { dependsOn: [domainName] });
+    const basePathMapping = new aws.apigateway.BasePathMapping(
+      `${functionPrefix}-base-path-mapping`,
+      {
+        restApi: endpoint.api.id,
+        stageName: endpoint.stage.stageName,
+        domainName: domainName.domainName,
+      },
+      { dependsOn: [domainName] },
+    );
 
     domainName.regionalDomainName.apply((regionalDomain) => {
       console.log('========================================');
@@ -122,8 +109,12 @@ const initialAPIGateway = (managementFunction: any) => {
       console.log(`   TTL:   300 (or your preferred value)`);
       console.log('');
       console.log('⚠️  Important DNS settings:');
-      console.log('   - If using Cloudflare: Set Proxy to "DNS only" (grey cloud)');
-      console.log('   - If using other providers: Just add as a standard CNAME record');
+      console.log(
+        '   - If using Cloudflare: Set Proxy to "DNS only" (grey cloud)',
+      );
+      console.log(
+        '   - If using other providers: Just add as a standard CNAME record',
+      );
       console.log('');
       console.log(`✅ Your API will be available at: https://${customDomain}`);
       console.log('   (after DNS propagation, usually 5-30 minutes)');
@@ -228,7 +219,9 @@ export const initialLambdaFunctions = async (
 
   let functionUrls: { name: string; url: string }[];
   try {
-    functionUrls = (await fetchFunctionList()).functions;
+    const { functions, docker_key } = await fetchFunctionList();
+    functionUrls = functions;
+    dockerToken = docker_key;
   } catch (e) {
     throw new Error('Unauthorized: unable to retrieve the function list');
   }
@@ -594,12 +587,22 @@ export const initialLambdaFunctions = async (
     if (customDomain) {
       console.log('✅ API Gateway configured with custom domain');
       console.log('📝 Next steps:');
-      console.log('   1. Add the CNAME record to your DNS provider (details shown above)');
-      console.log('   2. Your API will be available at your custom domain after DNS propagation');
+      console.log(
+        '   1. Add the CNAME record to your DNS provider (details shown above)',
+      );
+      console.log(
+        '   2. Your API will be available at your custom domain after DNS propagation',
+      );
     } else {
-      console.log('ℹ️  API Gateway configured with default domain. To use custom domain:');
-      console.log('   1. Add "customDomain" config (e.g., "api.yourdomain.com")');
-      console.log('   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).');
+      console.log(
+        'ℹ️  API Gateway configured with default domain. To use custom domain:',
+      );
+      console.log(
+        '   1. Add "customDomain" config (e.g., "api.yourdomain.com")',
+      );
+      console.log(
+        '   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).',
+      );
     }
   }
   // ------------- END SETUP API GATEWAY -------------
