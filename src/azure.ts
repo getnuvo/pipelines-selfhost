@@ -409,15 +409,19 @@ export const run = () => {
       value: serializationConfigValue(mappingAwsBedrockRegion),
     },
     {
-      name: 'AZURE_STORAGE_ACCOUNT_NAME',
+      'name': 'MAPPING_STORAGE_PROVIDER',
+      'value': 'AZURE_BLOB',
+    },
+    {
+      name: 'MAPPING_AZURE_BLOB_ACCOUNT_NAME',
       value: storageAccount.name,
     },
     {
-      name: 'AZURE_STORAGE_ACCOUNT_KEY',
+      name: 'MAPPING_AZURE_BLOB_ACCOUNT_KEY',
       value: getStorageAccountKeys.keys[0].value,
     },
     {
-      name: 'AZURE_BLOB_CONTAINER',
+      name: 'MAPPING_AZURE_BLOB_CONTAINER_NAME',
       value: dataContainer.name,
     },
     ...Object.entries(mappingModuleEnv).map(([name, value]) => ({
