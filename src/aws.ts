@@ -272,6 +272,9 @@ export const run = async () => {
       {
         ruleSetName: currentRuleSet,
       },
+      {
+        dependsOn: [testReceiptRule, executeReceiptRule],
+      },
     );
 
     const awsRegion = aws.config.region || 'us-east-1';
