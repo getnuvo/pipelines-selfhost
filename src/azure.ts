@@ -335,10 +335,6 @@ export const run = () => {
   const mappingAwsBedrockSecretAccessKey =
     config.get('mappingAwsBedrockSecretAccessKey') || '';
   const mappingAwsBedrockRegion = config.get('mappingAwsBedrockRegion') || '';
-  const mappingS3Region = config.require('AWS_REGION') || '';
-  const mappingS3AccessKeyId = config.require('AWS_ACCESS_KEY') || '';
-  const mappingS3SecretAccessKey = config.require('AWS_SECRET_KEY') || '';
-  const mappingBucketNamePipeline = config.get('AWS_S3_BUCKET') || '';
 
   const mappingAppSettings = [
     { name: 'WEBSITES_PORT', value: '8000' },
