@@ -11,6 +11,7 @@ export let docdbEndpoint: pulumi.Output<string> | undefined;
 export let docdbReaderEndpoint: pulumi.Output<string> | undefined;
 export let docdbConnectionString: pulumi.Output<string> | undefined;
 export let dnsRecord: any | undefined;
+export let endpoint: pulumi.Output<string> | undefined;
 
 export const run = async () => {
   const config = new pulumi.Config();
@@ -165,7 +166,7 @@ export const run = async () => {
   docdbConnectionString = pulumi.interpolate`mongodb://${masterUsername}:${masterPassword}@${cluster.endpoint}:27017/?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`;
 
   const s3Bucket = await initS3Bucket();
-  await initialLambdaFunctions(docdbConnectionString, s3Bucket);
+  endpoint = await initialLambdaFunctions(docdbConnectionString, s3Bucket);
 
   const emailDomain = config.get('customDomain');
 
@@ -267,7 +268,7 @@ export const run = async () => {
     );
 
     // Activate the duplicated rule set
-    const activateDuplicatedRuleSet = new aws.ses.ActiveReceiptRuleSet(
+    new aws.ses.ActiveReceiptRuleSet(
       `${prefix}-activate-duplicated-rule-set`,
       {
         ruleSetName: currentRuleSet,
@@ -295,4 +296,11 @@ export const run = async () => {
       });
     });
   }
+
+  return {
+    endpoint,
+    docdbEndpoint,
+    docdbReaderEndpoint,
+    docdbConnectionString,
+  };
 };

@@ -216,6 +216,7 @@ export const initialLambdaFunctions = async (
   let managementFunction;
   let emailListenerFunction: aws.lambda.Function | undefined;
   const createdFunctions: aws.lambda.Function[] = [];
+  let deployedEndpoint: pulumi.Output<string> | undefined;
 
   let functionUrls: { name: string; url: string }[];
   try {
@@ -582,7 +583,17 @@ export const initialLambdaFunctions = async (
 
   // ------------- SETUP API GATEWAY ---------------
   if (managementFunction) {
-    initialAPIGateway(managementFunction);
+    const apiGateway = initialAPIGateway(managementFunction);
+    // Expose a stable endpoint output for the deployment.
+    // - If custom domain is configured, prefer that.
+    // - Otherwise use the default execute-api URL (includes stage path).
+    const baseUrl = customDomain
+      ? pulumi.interpolate`https://${customDomain}`
+      : apiGateway.endpoint.url;
+    deployedEndpoint = pulumi
+      .output(baseUrl)
+      .apply((url) => (url.endsWith('/') ? url.slice(0, -1) : url))
+      .apply((url) => `${url}/dp`);
 
     if (customDomain) {
       console.log('✅ API Gateway configured with custom domain');
@@ -611,7 +622,12 @@ export const initialLambdaFunctions = async (
   await initialScheduleService();
   // --------------------- END SETUP SCHEDULE ---------------------
 
-  return;
+  if (!deployedEndpoint) {
+    throw new Error(
+      'API Gateway endpoint was not created (management function missing).',
+    );
+  }
+  return deployedEndpoint;
 };
 
 export const getLambdaName = () => lambdaName;

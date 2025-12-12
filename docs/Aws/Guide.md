@@ -28,7 +28,7 @@ This document covers:
 
 Before starting, ensure that you have the following:
 
-- An **AWS account** with permissions to manage EC2, S3, and DocumentDB.
+- An **AWS account** with permissions to manage Lambda, API Gateway, IAM, VPC, EFS, EC2, S3, and DocumentDB.
 - A **DP License Key** (available from your [Ingestro platform](https://dashboard.ingestro.com/dashboard)).
 - A local machine with:
   - Node.js (v16+)
@@ -133,62 +133,68 @@ You’ll be prompted to create a passphrase to protect Pulumi secrets.
 
 Store this passphrase securely — you’ll need it for future deployments or teardown commands.
 
-After initialization, a file named `Pulumi.ingestro-pipelines.yaml` is created in the repository root.
+After initialization, a file named `Pulumi.<stack-name>.yaml` is created in the repository root.
 
 ---
 
 ### 6. Edit Configuration
 
-Open `Pulumi.ingestro-pipelines.yaml` and update the following keys as needed:
+Open `Pulumi.<stack-name>.yaml` and update the following keys as needed.
+
+> ⚠️ Important: This repository’s Pulumi project name is `pipeline-self-host`, so configuration keys must be under the `pipeline-self-host:` namespace (not `pipelines-self-host:`).
 
 ```yaml
 encryptionsalt: <keep as is>
 config:
   aws:region: 'eu-central-1' # Must match your AWS profile region
   aws:profile: 'ingestro-pipelines' # Comment out if using the default AWS profile
-  pipelines-self-host:provider: 'aws'
-  pipelines-self-host:version: '0.29.4' # Check release notes for available versions
-  pipelines-self-host:prefix: '<YOUR_ENVIRENMENT_TAG>'
+  pipeline-self-host:provider: 'aws'
+  pipeline-self-host:version: '0.54.7' # Check release notes for available versions
+  pipeline-self-host:prefix: '<YOUR_ENVIRONMENT_TAG>' # Used for resource naming
+
+  # Optional: Custom Domain (recommended for production)
+  # pipeline-self-host:customDomain: 'dp.yourcompany.com'
+  # pipeline-self-host:certificateArn: 'arn:aws:acm:...'
 
   # Ingestro Settings
-  pipelines-self-host:INGESTRO_LICENSE_KEY: '<YOUR_LICENSE_KEY>'
-  pipelines-self-host:DATA_PIPELINE_DB_NAME: 'ingestro'
-  pipelines-self-host:S3_CONNECTOR_SECRET_KEY: 'vbeDWPY67Ip7JfcVdbDi2Yg4BcLAbgTz4af87040XVIjF1FiFp'
+  pipeline-self-host:INGESTRO_LICENSE_KEY: '<YOUR_LICENSE_KEY>' # Required
+  pipeline-self-host:DATA_PIPELINE_DB_NAME: 'ingestro' # Required
+  pipeline-self-host:S3_CONNECTOR_SECRET_KEY: '<RANDOM_LONG_SECRET>' # Required
 
   # AWS S3 Configuration
-  pipelines-self-host:AWS_REGION: 'eu-central-1'
-  pipelines-self-host:AWS_ACCESS_KEY: '<YOUR_AWS_ACCESS_KEY>'
-  pipelines-self-host:AWS_SECRET_KEY: '<YOUR_AWS_SECRET_KEY>'
+  pipeline-self-host:AWS_REGION: 'eu-central-1' # Required
+  pipeline-self-host:AWS_ACCESS_KEY: '<YOUR_AWS_ACCESS_KEY>' # Required
+  pipeline-self-host:AWS_SECRET_KEY: '<YOUR_AWS_SECRET_KEY>' # Required
 
   # Document DB Setup
-  pipelines-self-host:docdbUsername: 'master_ingestro'
-  pipelines-self-host:docdbPassword: '<SET_A_SECURE_PASSWORD>'
+  pipeline-self-host:docdbUsername: 'master' # Optional (default: master)
+  pipeline-self-host:docdbPassword: '<SET_A_SECURE_PASSWORD>' # Required
 
   # Mapping Module Settings
-  pipelines-self-host:dockerImageName: 'getnuvo/mapping:develop'
-  pipelines-self-host:dockerHubUsername: 'getnuvo'
-  pipelines-self-host:ec2InstanceType: 't3.large'
-  pipelines-self-host:rootVolumeSize: 30
+  pipeline-self-host:dockerImageName: 'getnuvo/mapping:develop'
+  pipeline-self-host:dockerHubUsername: 'getnuvo'
+  pipeline-self-host:ec2InstanceType: 't3.large'
+  pipeline-self-host:rootVolumeSize: 30
 
   # ---- LLM CONFIGURATION ----
-  pipelines-self-host:mappingLlmProvider: 'AZURE' # **NOTE:** You can select between AZURE for using an GPT model via Azure OpenAI or BEDROCK for using a Claude model via AWS Bedrock
-  pipelines-self-host:mappingLlmTemperature: 0.2
+  pipeline-self-host:mappingLlmProvider: 'AZURE' # AZURE (Azure OpenAI) | BEDROCK (AWS Bedrock)
+  pipeline-self-host:mappingLlmTemperature: 0.2
 
   # ---- Azure OpenAI Configuration ----
-  pipelines-self-host:mappingAzureOpenaiApiKey: '<YOUR_API_KEY>'
-  pipelines-self-host:mappingAzureOpenaiEndpoint: '<YOUR_API_ENDPOINT>'
-  pipelines-self-host:mappingAzureOpenaiApiVersion: '<YOUR_API_VERSION>'
-  pipelines-self-host:mappingAzureOpenaiDeploymentName: 'gpt-4o-mini' # **NOTE:** To guarantee the best balance between mapping accuracy and processing speed, we recommend using the GPT 4o mini model
+  pipeline-self-host:mappingAzureOpenaiApiKey: '<YOUR_API_KEY>'
+  pipeline-self-host:mappingAzureOpenaiEndpoint: 'https://<your-resource>.openai.azure.com'
+  pipeline-self-host:mappingAzureOpenaiApiVersion: '2024-10-21'
+  pipeline-self-host:mappingAzureOpenaiDeploymentName: 'gpt-4o-mini'
 
   # ---- AWS Bedrock Configuration ----
-  pipelines-self-host:mappingAwsBedrockModelId: '<YOUR_MODEL_ID>' # **NOTE:** To guarantee the best balance between mapping accuracy and processing speed, we recommend using the Claude Haiku 3 model via anthropic.claude-3-haiku-20240307-v1:0
-  pipelines-self-host:mappingAwsBedrockRegion: '<YOUR_MODEL_REGION>'
-  pipelines-self-host:mappingAwsBedrockAccessKeyId: '<YOUR_MODEL_ACCESS_KEY>'
-  pipelines-self-host:mappingAwsBedrockSecretAccessKey: '<YOUR_MODEL_SECRET_KEY>'
+  pipeline-self-host:mappingAwsBedrockModelId: '<YOUR_MODEL_ID>'
+  pipeline-self-host:mappingAwsBedrockRegion: '<YOUR_MODEL_REGION>'
+  pipeline-self-host:mappingAwsBedrockAccessKeyId: '<YOUR_MODEL_ACCESS_KEY>'
+  pipeline-self-host:mappingAwsBedrockSecretAccessKey: '<YOUR_MODEL_SECRET_KEY>'
 ```
 
 <aside>
-💡 A reference template is available in Pulumi.yaml.example. You can copy values from there and adjust for your environment.
+💡 Tip: Use `pulumi config set --secret ...` for sensitive values (license keys, API keys, secret keys, db passwords).
 </aside>
 
 ---
@@ -217,7 +223,11 @@ Deployment typically includes:
 - Networking and IAM configuration
 
 <aside>
-💡 Check our guide to see how you can configure your embeddables to use this endpoint: here
+> 💡 After deploy, fetch your API endpoint with:
+>
+> ```bash
+> pulumi stack output endpoint
+> ```
 </aside>
 
 ---
@@ -302,7 +312,7 @@ Example
 ```
 
 <aside>
-💡 Make sure to replace the URL with the endpoint you received after deploying your self-hosted backend.
+> 💡 Use the value from `pulumi stack output endpoint` as your `baseUrl`.
 </aside>
 
 ---

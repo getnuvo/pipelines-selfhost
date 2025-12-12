@@ -33,7 +33,14 @@ export const run = () => {
     config.get('COSMOS_LOG_DB_NAME') || 'ingestro_logging';
   const cosmosAdminUsername =
     config.get('COSMOS_MONGO_ADMIN_USERNAME') || 'mongoAdmin';
-  const cosmosAdminPassword = config.get('COSMOS_MONGO_ADMIN_PASSWORD') || 'mongoAdminPass123!';
+  // Production hardening: never fall back to a known default password.
+  // Prefer config secret, otherwise generate a strong password.
+  const cosmosAdminPassword =
+    config.getSecret('COSMOS_MONGO_ADMIN_PASSWORD') ??
+    new random.RandomPassword(`${prefix}-cosmos-admin-password`, {
+      length: 32,
+      special: true,
+    }).result;
   const cosmosComputeTier = config.get('COSMOS_MONGO_COMPUTE_TIER') || 'M30';
   const cosmosNodeCount = config.getNumber('COSMOS_MONGO_NODE_COUNT') || 3;
   const cosmosStorageSizeGb =
@@ -61,18 +68,6 @@ export const run = () => {
   const mappingDockerPassword = resolvedCodeArtifact.apply(
     (artifact) => artifact.dockerKey,
   );
-  const dataContainerSuffix = new random.RandomString(
-    `${prefix}-data-container-suffix`,
-    {
-      length: 8,
-      special: false,
-      upper: false,
-      lower: true,
-      number: true,
-    },
-  );
-  const dataContainerName = pulumi.interpolate`ingestrodata${dataContainerSuffix.result}`;
-
   // Create a separate resource group for this example.
   const resourceGroup = new resources.ResourceGroup(existingResourceGroupName, {
     location: 'germanywestcentral',
@@ -180,7 +175,7 @@ export const run = () => {
 
   // NAT Gateway public IP that should be allowed to reach Cosmos Mongo.
   const staticIpAddress = natPublicIp.ipAddress.apply((ip) => ip || '');
-  const mongoClusterFirewallRuleIngestro = new cosmosdb.MongoClusterFirewallRule(
+  new cosmosdb.MongoClusterFirewallRule(
     `${prefix}-mongo-cluster-firewall-rule`,
     {
       // Only allow traffic coming from the NAT Gateway's public IP
@@ -219,7 +214,7 @@ export const run = () => {
       }),
     );
 
-  const blobServiceCors = new storage.BlobServiceProperties(
+  new storage.BlobServiceProperties(
     `${prefix}-blob-service-cors`,
     {
       accountName: storageAccount.name,
@@ -436,7 +431,7 @@ export const run = () => {
     httpsOnly: true,
   });
 
-  const mappingAppVnetIntegration = new web.WebAppSwiftVirtualNetworkConnection(
+  new web.WebAppSwiftVirtualNetworkConnection(
     `${prefix}-mapping-app-vnet-integration`,
     {
       name: mappingApp.name,
@@ -510,7 +505,7 @@ export const run = () => {
   });
 
   // VNet integration (unchanged)
-  const functionVnetIntegration = new web.WebAppSwiftVirtualNetworkConnection(
+  new web.WebAppSwiftVirtualNetworkConnection(
     `${prefix}-management-func-vnet-integration`,
     {
       name: app.name,
@@ -636,9 +631,18 @@ export const run = () => {
       name: 'AZURE_FUNCTION_BASE_URL',
       value: functionAppUrl,
     },
+    // Token used for internal auth between components; avoid known defaults.
     {
       name: 'AZURE_PRIVATE_TOKEN',
-      value: config.get('AZURE_PRIVATE_TOKEN') || 'ingestro-azure-secret',
+      value:
+        config.getSecret('AZURE_PRIVATE_TOKEN') ??
+        new random.RandomString(`${prefix}-azure-private-token`, {
+          length: 32,
+          special: false,
+          upper: true,
+          lower: true,
+          number: true,
+        }).result,
     },
     {
       name: 'SENDGRID_RECEIVER_SECRET_KEY',
@@ -648,7 +652,7 @@ export const run = () => {
     ...(customDomain ? [{ name: 'CUSTOM_DOMAIN', value: customDomain }] : []),
   ];
 
-  const appSettingsResource = new web.WebAppApplicationSettings(
+  new web.WebAppApplicationSettings(
     `${prefix}-app-settings`,
     {
       name: app.name,

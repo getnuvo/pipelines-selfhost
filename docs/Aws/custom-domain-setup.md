@@ -69,7 +69,7 @@ Go to your DNS provider (Cloudflare recommended) and create a **CNAME record** u
 
 Example screenshot:
 
-![Cloudflare DNS CNAME example](images/dns-record.png)
+![Cloudflare DNS CNAME example](../images/dns-record.png)
 After saving the CNAME, wait a few minutes.
 
 When the certificate is validated, your terminal will show:
