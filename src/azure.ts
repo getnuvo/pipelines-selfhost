@@ -22,8 +22,8 @@ export const run = () => {
   const config = new pulumi.Config();
   const prefix = config.get('prefix') || 'ingestro';
   const existingResourceGroupName = `${prefix}-functions-rg`;
-  const cosmosAccountName =
-    config.get('COSMOS_ACCOUNT_NAME') || `${prefix}-mongo-ru-account`;
+  const cosmosClusterName =
+    config.get('COSMOS_CLUSTER_NAME') || `${prefix}-mongo-vcore-cluster`;
   const cosmosPrimaryRegion =
     config.get('COSMOS_PRIMARY_REGION') || 'germanywestcentral';
   const cosmosServerVersion =
@@ -31,9 +31,13 @@ export const run = () => {
   const cosmosDatabaseName = config.get('COSMOS_DB_NAME') || 'ingestro';
   const cosmosLogDatabaseName =
     config.get('COSMOS_LOG_DB_NAME') || 'ingestro_logging';
-  const cosmosDatabaseThroughput = config.getNumber('COSMOS_DB_RU') || 400;
-  const cosmosLogDatabaseThroughput =
-    config.getNumber('COSMOS_LOG_DB_RU') || cosmosDatabaseThroughput;
+  const cosmosAdminUsername =
+    config.get('COSMOS_MONGO_ADMIN_USERNAME') || 'mongoAdmin';
+  const cosmosAdminPassword = config.get('COSMOS_MONGO_ADMIN_PASSWORD') || 'mongoAdminPass123!';
+  const cosmosComputeTier = config.get('COSMOS_MONGO_COMPUTE_TIER') || 'M30';
+  const cosmosNodeCount = config.getNumber('COSMOS_MONGO_NODE_COUNT') || 3;
+  const cosmosStorageSizeGb =
+    config.getNumber('COSMOS_MONGO_STORAGE_SIZE_GB') || 64;
   const mappingContainerImage =
     config.require('MAPPING_CONTAINER_IMAGE') || 'getnuvo/mapping:latest';
   const mappingDockerServer =
@@ -107,10 +111,35 @@ export const run = () => {
     },
   });
 
+  // NAT Gateway + public IP for stable outbound IP from the function subnet
+  const natPublicIp = new network.PublicIPAddress(
+    `${prefix}-nat-public-ip`,
+    {
+      resourceGroupName: resourceGroup.name,
+      location: location,
+      publicIPAllocationMethod: 'Static',
+      sku: { name: 'Standard' },
+    },
+  );
+
+  const natGateway = new network.NatGateway(`${prefix}-nat-gateway`, {
+    resourceGroupName: resourceGroup.name,
+    location: location,
+    sku: { name: 'Standard' },
+    publicIpAddresses: [
+      {
+        id: natPublicIp.id,
+      },
+    ],
+  });
+
   const subnetWithNat = new network.Subnet(`${prefix}-function-subnet`, {
     resourceGroupName: resourceGroup.name,
     virtualNetworkName: virtualNetwork.name,
     addressPrefix: '10.2.1.0/24',
+    natGateway: {
+      id: natGateway.id,
+    },
     serviceEndpoints: [
       {
         service: 'Microsoft.Storage',
@@ -127,84 +156,50 @@ export const run = () => {
     ],
   });
 
-  const cosmosAccount = new cosmosdb.DatabaseAccount(cosmosAccountName, {
+  const cosmosCluster = new cosmosdb.MongoCluster(cosmosClusterName, {
     resourceGroupName: resourceGroup.name,
     location: cosmosPrimaryRegion,
-    databaseAccountOfferType: 'Standard',
-    kind: cosmosdb.DatabaseAccountKind.MongoDB,
-    apiProperties: {
-      serverVersion: cosmosServerVersion,
-    },
-    locations: [
+    mongoClusterName: cosmosClusterName,
+    administratorLogin: cosmosAdminUsername,
+    administratorLoginPassword: cosmosAdminPassword,
+    nodeGroupSpecs: [
       {
-        locationName: cosmosPrimaryRegion,
-        failoverPriority: 0,
-        isZoneRedundant: false,
+        diskSizeGB: cosmosStorageSizeGb,
+        enableHa: true,
+        kind: 'Shard',
+        nodeCount: cosmosNodeCount,
+        sku: cosmosComputeTier,
       },
     ],
-    capabilities: [{ name: 'EnableMongo' }],
-    consistencyPolicy: {
-      defaultConsistencyLevel: cosmosdb.DefaultConsistencyLevel.Session,
-    },
-    publicNetworkAccess: 'Enabled',
-    // Allow unrestricted public access; rely on auth instead of IP filtering
+    serverVersion: cosmosServerVersion,
     tags: {
       environment: 'development',
-      project: 'mongodb-ru',
+      project: 'mongodb-vcore',
     },
   });
 
-  const cosmosDatabase = new cosmosdb.MongoDBResourceMongoDBDatabase(
-    cosmosDatabaseName,
+  // NAT Gateway public IP that should be allowed to reach Cosmos Mongo.
+  const staticIpAddress = natPublicIp.ipAddress.apply((ip) => ip || '');
+  const mongoClusterFirewallRuleIngestro = new cosmosdb.MongoClusterFirewallRule(
+    `${prefix}-mongo-cluster-firewall-rule`,
     {
-      accountName: cosmosAccount.name,
+      // Only allow traffic coming from the NAT Gateway's public IP
+      startIpAddress: staticIpAddress,
+      endIpAddress: staticIpAddress,
+      firewallRuleName: `${prefix}-ingestro-nat-rule`,
+      mongoClusterName: cosmosCluster.name,
       resourceGroupName: resourceGroup.name,
-      resource: {
-        id: cosmosDatabaseName,
-      },
-      options: {
-        throughput: cosmosDatabaseThroughput,
-      },
     },
-    { dependsOn: [cosmosAccount] },
   );
 
-  const cosmosLogDatabase = new cosmosdb.MongoDBResourceMongoDBDatabase(
-    cosmosLogDatabaseName,
-    {
-      accountName: cosmosAccount.name,
-      resourceGroupName: resourceGroup.name,
-      resource: {
-        id: cosmosLogDatabaseName,
-      },
-      options: {
-        throughput: cosmosLogDatabaseThroughput,
-      },
-    },
-    { dependsOn: [cosmosAccount] },
-  );
-
-  const accountConnectionStrings = pulumi
-    .all([resourceGroup.name, cosmosAccount.name])
-    .apply(([rgName, accountName]) =>
-      cosmosdb.listDatabaseAccountConnectionStrings({
-        resourceGroupName: rgName,
-        accountName,
-      }),
+  // vCore exposes a direct Mongo connection string from the cluster.
+  databaseConnectionString = pulumi
+    .all([cosmosCluster.connectionString, cosmosAdminPassword])
+    .apply(([connectionString, password]) =>
+      connectionString
+        .replace('<user>', encodeURIComponent(cosmosAdminUsername))
+        .replace('<password>', encodeURIComponent(password)),
     );
-
-  databaseConnectionString = accountConnectionStrings.apply((result) => {
-    const primaryConnectionString =
-      result.connectionStrings?.find((cs) =>
-        cs.description?.includes('Primary MongoDB'),
-      )?.connectionString || result.connectionStrings?.[0]?.connectionString;
-
-    if (!primaryConnectionString) {
-      throw new Error('Unable to resolve Cosmos DB Mongo connection string.');
-    }
-
-    return primaryConnectionString;
-  });
 
   // Storage account is required by Function App.
   // Also, we will upload the function code to the same storage account.
@@ -405,8 +400,8 @@ export const run = () => {
       value: serializationConfigValue(mappingAwsBedrockRegion),
     },
     {
-      'name': 'MAPPING_STORAGE_PROVIDER',
-      'value': 'AZURE_BLOB',
+      name: 'MAPPING_STORAGE_PROVIDER',
+      value: 'AZURE_BLOB',
     },
     {
       name: 'MAPPING_AZURE_BLOB_ACCOUNT_NAME',
@@ -567,12 +562,16 @@ export const run = () => {
           console.log(
             `   Note:  If your DNS provider doesn't support ALIAS/ANAME,`,
           );
-          console.log(`          consider using a subdomain with CNAME instead\n`);
+          console.log(
+            `          consider using a subdomain with CNAME instead\n`,
+          );
         }
 
         console.log('-'.repeat(80));
         console.log('\n✅ Action Required:');
-        console.log('   1. Go to your DNS provider (e.g., Cloudflare, Route53)');
+        console.log(
+          '   1. Go to your DNS provider (e.g., Cloudflare, Route53)',
+        );
         console.log('   2. Add the DNS records listed above');
         console.log('   3. Wait 5-10 minutes for DNS propagation');
         console.log('   4. Run `pulumi up` again to create the binding\n');
@@ -633,11 +632,6 @@ export const run = () => {
       name: 'AZURE_ACCOUNT_KEY',
       value: getStorageAccountKeys.keys[0].value,
     },
-    { name: 'PUSHER_APP_ID', value: config.get('PUSHER_APP_ID') },
-    { name: 'PUSHER_KEY', value: config.get('PUSHER_KEY') },
-    { name: 'PUSHER_SECRET', value: config.get('PUSHER_SECRET') },
-    { name: 'BREVO_API_KEY', value: config.get('BREVO_API_KEY') },
-    { name: 'DP_LICENSE_KEY', value: config.require('INGESTRO_LICENSE_KEY') },
     {
       name: 'AZURE_FUNCTION_BASE_URL',
       value: functionAppUrl,
