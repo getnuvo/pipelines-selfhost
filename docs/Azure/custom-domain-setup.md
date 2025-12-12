@@ -56,19 +56,19 @@ It will look like:
 
 Go to your DNS provider and add:
 
+TXT RECORD
+
+- **Name:** (copy the TXT **Name** from Pulumi output; often `asuid.<your-domain>` but do not assume)
+- **Type:** TXT
+- **Value:** Shown in the Pulumi output
+- **TTL:** 3600 (or your preference)
+- **Proxy:** DNS Only
+
 CNAME
 
 - **Name:** your custom domain (e.g., `selfhost.acme.com`)
 - **Type:** CNAME
-- **Value:** The Function URL shown in the Pulumi output
-- **TTL:** 3600 (or your preference)
-- **Proxy:** DNS Only
-
-TXT RECORD
-
-- **Name:** asuid.azure-test
-- **Type:** TXT
-- **Value:** Shown in the Pulumi output
+- **Value:** use the Target hostname from Pulumi output
 - **TTL:** 3600 (or your preference)
 - **Proxy:** DNS Only
 
@@ -89,7 +89,7 @@ Once DNS propagates (5–30 min), your API will be reachable via your domain.
 Test the health endpoint:
 
 ```bash
-curl https://{YOUR DOMAIN}/dp/api/v1/management/health
+curl "https://<your-domain>/dp/api/v1/management/health"
 ```
 
 You can also test using the **Azure Function URL** printed during `pulumi up`.

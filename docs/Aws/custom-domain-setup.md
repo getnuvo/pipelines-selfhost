@@ -132,9 +132,7 @@ It will look like:
 
 <aside>
 
-> ⚠️ If using Cloudflare, ensure Proxy = DNS Only
->
-> API Gateway does not work through Cloudflare's orange-cloud proxy.
+> ⚠️ If you use Cloudflare, start with DNS Only; proxied mode may break TLS/host-header validation depending on your setup
 
 </aside>
 
