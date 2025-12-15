@@ -19,8 +19,8 @@ Use this `README.md` as the starting point, then follow the provider-specific gu
 
 ## 🧭 Choose your cloud provider
 
-- **AWS deployment guide**: [AWS Guide](./docs/Aws/Guide.md)
-- **Azure deployment guide**: [Azure Guide](./docs/Azure/Guide.md)
+- **AWS deployment guide**: [AWS Guide](./docs/aws/guide.md)
+- **Azure deployment guide**: [Azure Guide](./docs/azure/guide.md)
 
 If you plan to use a custom domain, start here:
 
@@ -54,8 +54,8 @@ Before starting, ensure you have:
 
 Follow the relevant guide for exact versions, permissions, and authentication steps:
 
-- `docs/Aws/Guide.md`
-- `docs/Azure/Guide.md`
+- [AWS Guide](docs/aws/guide.md)
+- [Azure Guide](docs/azure/guide.md)
 
 ---
 
@@ -83,7 +83,7 @@ pulumi stack output endpoint
 
 ## 🧩 Using the self-hosted backend with Ingestro embeddables
 
-All **Ingestro frontend embeddables** are compatible with the **self-hosted backend**.
+All Ingestro frontend [embeddables](https://docs.ingestro.com/dp/embeddables/) are compatible with the **self-hosted backend**.
 
 Set `baseUrl` to the endpoint you deployed (see `pulumi stack output endpoint` above).
 
@@ -113,8 +113,8 @@ Example:
 
 # 📚 References
 
-- [AWS Guide](docs/Aws/Guide.md)
-- [Azure Guide](docs/Azure/Guide.md)
+- [AWS Guide](docs/aws/guide.md)
+- [Azure Guide](docs/azure/guide.md)
 - [Pulumi CLI Documentation](https://www.pulumi.com/docs/iac/download-install/#choose-an-operating-system)
 - [Pulumi AWS Provider](https://www.pulumi.com/registry/packages/aws/)
 - [Pulumi Azure Provider](https://www.pulumi.com/registry/packages/azure-native/)

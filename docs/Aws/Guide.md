@@ -290,7 +290,7 @@ You’ll be prompted to confirm. This will decommission all AWS resources create
 
 ## Setting up Ingestro Pipelines Frontend Embeddables
 
-All **Ingestro frontend embeddables** are compatible with the **self-hosted backend**.
+All Ingestro frontend [embeddables](https://docs.ingestro.com/dp/embeddables/) are compatible with the **self-hosted backend**.
 
 You can define the API endpoint used by your embeddables through the `baseUrl` setting.
 
