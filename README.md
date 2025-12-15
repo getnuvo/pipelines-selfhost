@@ -24,8 +24,8 @@ Use this `README.md` as the starting point, then follow the provider-specific gu
 
 If you plan to use a custom domain, start here:
 
-- **AWS custom domain setup**: [AWS Guide](./docs/Aws/custom-domain-setup.md)
-- **Azure custom domain setup**: [Azure Guide](./docs/Azure/custom-domain-setup.md)
+- **AWS custom domain setup**: [AWS Guide](./docs/aws/custom-domain-setup.md)
+- **Azure custom domain setup**: [Azure Guide](./docs/azure/custom-domain-setup.md)
 
 ---
 
