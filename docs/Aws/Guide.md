@@ -312,7 +312,9 @@ Example
 ```
 
 <aside>
+
 > 💡 Use the value from `pulumi stack output endpoint` as your `baseUrl`.
+
 </aside>
 
 ---
