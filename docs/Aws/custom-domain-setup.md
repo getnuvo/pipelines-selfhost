@@ -69,7 +69,7 @@ Go to your DNS provider (Cloudflare recommended) and create a **CNAME record** u
 
 Example screenshot:
 
-![Cloudflare DNS CNAME example](images/dns-record.png)
+![Cloudflare DNS CNAME example](../images/dns-record.png)
 After saving the CNAME, wait a few minutes.
 
 When the certificate is validated, your terminal will show:
@@ -132,9 +132,7 @@ It will look like:
 
 <aside>
 
-> ⚠️ If using Cloudflare, ensure Proxy = DNS Only
->
-> API Gateway does not work through Cloudflare's orange-cloud proxy.
+> ⚠️ If you use Cloudflare, start with DNS Only; proxied mode may break TLS/host-header validation depending on your setup
 
 </aside>
 
