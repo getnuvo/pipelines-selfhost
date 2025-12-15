@@ -19,13 +19,13 @@ Use this `README.md` as the starting point, then follow the provider-specific gu
 
 ## 🧭 Choose your cloud provider
 
-- **AWS deployment guide**: `docs/Aws/Guide.md`
-- **Azure deployment guide**: `docs/Azure/Guide.md`
+- **AWS deployment guide**: [AWS Guide](./docs/Aws/Guide.md)
+- **Azure deployment guide**: [Azure Guide](./docs/Azure/Guide.md)
 
 If you plan to use a custom domain, start here:
 
-- **AWS custom domain setup**: `docs/Aws/custom-domain-setup.md`
-- **Azure custom domain setup**: `docs/Azure/custom-domain-setup.md`
+- **AWS custom domain setup**: [Aws Guide](./docs/Aws/custom-domain-setup.md)
+- **Azure custom domain setup**: [Azure Guide](./docs/Azure/custom-domain-setup.md)
 
 ---
 
