@@ -107,15 +107,12 @@ export const run = () => {
   });
 
   // NAT Gateway + public IP for stable outbound IP from the function subnet
-  const natPublicIp = new network.PublicIPAddress(
-    `${prefix}-nat-public-ip`,
-    {
-      resourceGroupName: resourceGroup.name,
-      location: location,
-      publicIPAllocationMethod: 'Static',
-      sku: { name: 'Standard' },
-    },
-  );
+  const natPublicIp = new network.PublicIPAddress(`${prefix}-nat-public-ip`, {
+    resourceGroupName: resourceGroup.name,
+    location: location,
+    publicIPAllocationMethod: 'Static',
+    sku: { name: 'Standard' },
+  });
 
   const natGateway = new network.NatGateway(`${prefix}-nat-gateway`, {
     resourceGroupName: resourceGroup.name,
@@ -214,25 +211,22 @@ export const run = () => {
       }),
     );
 
-  new storage.BlobServiceProperties(
-    `${prefix}-blob-service-cors`,
-    {
-      accountName: storageAccount.name,
-      resourceGroupName: resourceGroup.name,
-      blobServicesName: 'default',
-      cors: {
-        corsRules: [
-          {
-            allowedOrigins: ['*'],
-            allowedMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-            allowedHeaders: ['*'],
-            exposedHeaders: ['*'],
-            maxAgeInSeconds: 3600,
-          },
-        ],
-      },
+  new storage.BlobServiceProperties(`${prefix}-blob-service-cors`, {
+    accountName: storageAccount.name,
+    resourceGroupName: resourceGroup.name,
+    blobServicesName: 'default',
+    cors: {
+      corsRules: [
+        {
+          allowedOrigins: ['*'],
+          allowedMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['*'],
+          maxAgeInSeconds: 3600,
+        },
+      ],
     },
-  );
+  });
 
   // Function code archives will be stored in this container.
   const codeContainer = new storage.BlobContainer(`${prefix}-zips`, {
@@ -652,20 +646,17 @@ export const run = () => {
     ...(customDomain ? [{ name: 'CUSTOM_DOMAIN', value: customDomain }] : []),
   ];
 
-  new web.WebAppApplicationSettings(
-    `${prefix}-app-settings`,
-    {
-      name: app.name,
-      resourceGroupName: resourceGroup.name,
-      properties: pulumi.output(appSettings).apply((settings) => {
-        const result: { [k: string]: string } = {};
-        settings.forEach((s) => {
-          result[s.name] = s.value || '';
-        });
-        return result;
-      }),
-    },
-  );
+  new web.WebAppApplicationSettings(`${prefix}-app-settings`, {
+    name: app.name,
+    resourceGroupName: resourceGroup.name,
+    properties: pulumi.output(appSettings).apply((settings) => {
+      const result: { [k: string]: string } = {};
+      settings.forEach((s) => {
+        result[s.name] = s.value || '';
+      });
+      return result;
+    }),
+  });
 
   // Build structured DNS record data for custom domain verification + mapping
   customDomainDnsRecords = customDomain

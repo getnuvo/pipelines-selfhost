@@ -149,7 +149,7 @@ config:
   pipeline-self-host:S3_CONNECTOR_SECRET_KEY: '<RANDOM_LONG_SECRET>' # Required
 
   # Mapping Module (Azure deploys the mapping module as an App Service container)
-  pipeline-self-host:MAPPING_CONTAINER_IMAGE: 'getnuvo/mapping:develop' # Required
+  pipeline-self-host:MAPPING_CONTAINER_IMAGE: 'getnuvo/mapping:latest' # Required
 
   # ---- LLM CONFIGURATION ----
   pipeline-self-host:mappingLlmProvider: 'AZURE' # AZURE (Azure OpenAI) | BEDROCK (AWS Bedrock)
