@@ -166,6 +166,11 @@ config:
   pipeline-self-host:AWS_ACCESS_KEY: '<YOUR_AWS_ACCESS_KEY>' # Required
   pipeline-self-host:AWS_SECRET_KEY: '<YOUR_AWS_SECRET_KEY>' # Required
 
+  # Pusher Configuration
+  pipeline-self-host:PUSHER_SECRET
+  pipeline-self-host:PUSHER_KEY
+  pipeline-self-host:PUSHER_APP_ID
+
   # Document DB Setup
   pipeline-self-host:docdbUsername: 'master' # Optional (default: master)
   pipeline-self-host:docdbPassword: '<SET_A_SECURE_PASSWORD>' # Required
