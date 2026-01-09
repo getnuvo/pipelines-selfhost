@@ -6,7 +6,7 @@ const codePipelineVersion = config.get('version') || '1.0.0';
 const provider = config.require('provider')?.toUpperCase() || 'AWS';
 const selfHostDeploymentUrl =
   config.get('selfHostDeploymentUrl') ||
-  'https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment';
+  'https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment';
 
 export const fetchFunctionList = async () => {
   const url = selfHostDeploymentUrl;
