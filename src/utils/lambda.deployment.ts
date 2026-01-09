@@ -3,39 +3,20 @@ import * as aws from '@pulumi/aws';
 import * as apigateway from '@pulumi/aws-apigateway';
 import { WaitForEfsTargets } from './efs-waiting-target';
 import { LambdaEniWait } from './eip-waiting';
-import { default as axios } from 'axios';
 import { initialMappingModule } from './mapping.deployment';
+import { Bucket } from '@pulumi/aws/s3';
+import { fetchFunctionList } from './ingestro';
 
 const config = new pulumi.Config();
 const requiredScheduleFunction = ['execution-schedule', 'session-schedule'];
 const scheduleFunctions: aws.lambda.Function[] = [];
 let lambdaName: pulumi.Output<string> | undefined;
 const functionPrefix = config.require('prefix');
-const codePipelineVersion = config.get('version') || '1.0.0';
 const existingS3Bucket = config.get('AWS_S3_BUCKET');
+const customDomain = config.get('customDomain');
+const certificateArn = config.get('certificateArn');
 let dockerToken: string;
 let s3BucketName: string;
-
-const fetchFunctionList = async () => {
-  const url = `https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment`;
-  const body = {
-    version: codePipelineVersion,
-    provider: 'AWS',
-    license_key: config.require('INGESTRO_LICENSE_KEY'),
-  };
-
-  try {
-    const response = await axios.post(url, body);
-    dockerToken = response.data.docker_key;
-    return response.data as {
-      functions: { name: string; url: string }[];
-      docker_key: string;
-    };
-  } catch (error) {
-    console.error('Error fetching function list:', error.response.data);
-    throw error;
-  }
-};
 
 const getHandler = (functionName: string) => {
   switch (functionName) {
@@ -60,23 +41,94 @@ const getHandler = (functionName: string) => {
   }
 };
 
-const initialAPIGateway = async (managementFunction: any) => {
-  const endpoint = new apigateway.RestAPI(`${functionPrefix}-dp-self-hosted`, {
-    routes: [
-      {
-        path: '{route+}',
-        method: 'ANY',
-        eventHandler: managementFunction,
-      },
-    ],
-    stageName: 'prod',
-  }, { dependsOn: [managementFunction] });
+const initialAPIGateway = (managementFunction: any) => {
+  const endpoint = new apigateway.RestAPI(
+    `${functionPrefix}-dp-self-hosted`,
+    {
+      routes: [
+        {
+          path: '{route+}',
+          method: 'ANY',
+          eventHandler: managementFunction,
+        },
+      ],
+      stageName: 'prod',
+    },
+    { dependsOn: [managementFunction] },
+  );
 
+  // Log the default endpoint URL
   endpoint.url.apply((url) => {
-    console.log('API Gateway endpoint URL:', url);
+    console.log('API Gateway default endpoint URL:', url);
   });
 
-  return endpoint;
+  // Set up custom domain if configured
+  if (customDomain) {
+    if (!certificateArn) {
+      throw new Error(
+        `Certificate ARN is required when using custom domain. Please provide 'certificateArn' config value with a valid ACM certificate ARN for domain: ${customDomain}`,
+      );
+    }
+
+    console.log(`🔧 Setting up custom domain: ${customDomain}`);
+    console.log('📜 Using provided certificate ARN');
+
+    const certArn = pulumi.output(certificateArn);
+
+    const domainName = new aws.apigateway.DomainName(
+      `${functionPrefix}-custom-domain`,
+      {
+        domainName: customDomain,
+        regionalCertificateArn: certArn,
+        securityPolicy: 'TLS_1_2',
+        endpointConfiguration: {
+          types: 'REGIONAL',
+        },
+      },
+    );
+
+    const basePathMapping = new aws.apigateway.BasePathMapping(
+      `${functionPrefix}-base-path-mapping`,
+      {
+        restApi: endpoint.api.id,
+        stageName: endpoint.stage.stageName,
+        domainName: domainName.domainName,
+      },
+      { dependsOn: [domainName] },
+    );
+
+    domainName.regionalDomainName.apply((regionalDomain) => {
+      console.log('========================================');
+      console.log('🌐 Custom Domain Configuration Complete');
+      console.log('========================================');
+      console.log('');
+      console.log('📋 Add this CNAME record to your DNS provider:');
+      console.log(`   Name:  ${customDomain}`);
+      console.log(`   Type:  CNAME`);
+      console.log(`   Value: ${regionalDomain}`);
+      console.log(`   TTL:   300 (or your preferred value)`);
+      console.log('');
+      console.log('⚠️  Important DNS settings:');
+      console.log(
+        '   - If using Cloudflare: Set Proxy to "DNS only" (grey cloud)',
+      );
+      console.log(
+        '   - If using other providers: Just add as a standard CNAME record',
+      );
+      console.log('');
+      console.log(`✅ Your API will be available at: https://${customDomain}`);
+      console.log('   (after DNS propagation, usually 5-30 minutes)');
+      console.log('========================================');
+    });
+
+    domainName.domainName.apply((domain) => {
+      console.log(`✅ Custom domain configured: https://${domain}`);
+    });
+
+    return { endpoint, domainName, basePathMapping };
+  }
+
+  return { endpoint };
 };
 
 export const initS3Bucket = async () => {
@@ -91,9 +143,9 @@ export const initS3Bucket = async () => {
           allowedMethods: ['GET', 'PUT', 'POST', 'HEAD'],
           allowedOrigins: ['*'],
           allowedHeaders: ['*'],
-          exposeHeaders: ['Content-Range']
-        }
-      ]
+          exposeHeaders: ['Content-Range'],
+        },
+      ],
     });
   }
 };
@@ -159,18 +211,21 @@ export const initialScheduleService = async () => {
  */
 export const initialLambdaFunctions = async (
   databaseUrl: pulumi.Output<string>,
+  s3Bucket: Bucket,
 ) => {
   let managementFunction;
   let emailListenerFunction: aws.lambda.Function | undefined;
   const createdFunctions: aws.lambda.Function[] = [];
+  let deployedEndpoint: pulumi.Output<string> | undefined;
 
   let functionUrls: { name: string; url: string }[];
   try {
-    functionUrls = (await fetchFunctionList()).functions;
+    const { functions, docker_key } = await fetchFunctionList();
+    functionUrls = functions;
+    dockerToken = docker_key;
   } catch (e) {
     throw new Error('Unauthorized: unable to retrieve the function list');
   }
-  const s3Bucket = await initS3Bucket()
 
   const mappingModuleUrl = await initialMappingModule(dockerToken, s3Bucket);
 
@@ -233,8 +288,7 @@ export const initialLambdaFunctions = async (
   const efs = new aws.efs.FileSystem(`${functionPrefix}-lambda-efs`, {
     creationToken: `${functionPrefix}-lambda-efs-token`,
     performanceMode: 'generalPurpose',
-    throughputMode: 'provisioned',
-    provisionedThroughputInMibps: 100,
+    throughputMode: 'elastic',
     encrypted: true,
     tags: {
       Name: `${functionPrefix}-lambda-efs`,
@@ -317,38 +371,48 @@ export const initialLambdaFunctions = async (
   });
 
   // Custom EFS policy for Lambda
-  const lambdaEfsPolicy = new aws.iam.Policy(`${functionPrefix}-lambda-efs-specific-policy`, {
-    description:
-      'Allow Lambda to access only the specific EFS file system and access point',
-    policy: pulumi.all([efs.arn, efsAccessPoint.arn]).apply(([efsArn, apArn]) =>
-      JSON.stringify({
-        Version: '2012-10-17',
-        Statement: [
-          {
-            Effect: 'Allow',
-            Action: [
-              'elasticfilesystem:ClientMount',
-              'elasticfilesystem:ClientWrite',
+  const lambdaEfsPolicy = new aws.iam.Policy(
+    `${functionPrefix}-lambda-efs-specific-policy`,
+    {
+      description:
+        'Allow Lambda to access only the specific EFS file system and access point',
+      policy: pulumi
+        .all([efs.arn, efsAccessPoint.arn])
+        .apply(([efsArn, apArn]) =>
+          JSON.stringify({
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Action: [
+                  'elasticfilesystem:ClientMount',
+                  'elasticfilesystem:ClientWrite',
+                ],
+                Resource: [efsArn, apArn],
+              },
             ],
-            Resource: [efsArn, apArn],
-          },
-        ],
-      }),
-    ),
-  });
-  new aws.iam.RolePolicyAttachment(`${functionPrefix}-lambda-efs-access-policy`, {
-    role: awsIamRole.name,
-    policyArn: lambdaEfsPolicy.arn,
-  });
+          }),
+        ),
+    },
+  );
+  new aws.iam.RolePolicyAttachment(
+    `${functionPrefix}-lambda-efs-access-policy`,
+    {
+      role: awsIamRole.name,
+      policyArn: lambdaEfsPolicy.arn,
+    },
+  );
 
   // Wait for all EFS-dependent resources to be ready before creating Lambda functions
-  console.log('🔄 Ensuring EFS is fully ready before creating Lambda functions...');
+  console.log(
+    '🔄 Ensuring EFS is fully ready before creating Lambda functions...',
+  );
 
   for (let i = 0; i < functionUrls.length; i++) {
     const loggingService = new aws.cloudwatch.LogGroup(
       `${functionPrefix}-${functionUrls[i].name}-log`,
       {
-        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`
+        name: `/aws/lambda/${functionPrefix}-${functionUrls[i].name}`,
       },
     );
 
@@ -390,13 +454,14 @@ export const initialLambdaFunctions = async (
         },
         environment: {
           variables: {
+            APP_STAGE: 'prod',
             DATA_PIPELINE_DB_URI: databaseUrl,
             DATA_PIPELINE_DB_NAME: config.require('DATA_PIPELINE_DB_NAME'),
             S3_CONNECTOR_SECRET_KEY: config.require('S3_CONNECTOR_SECRET_KEY'),
             AWS_PROVIDER_REGION: config.require('AWS_REGION'),
             AWS_PROVIDER_KEY: config.require('AWS_ACCESS_KEY'),
             AWS_PROVIDER_SECRET: config.require('AWS_SECRET_KEY'),
-            AWS_S3_BUCKET: s3Bucket.bucket.apply(bucket=> bucket),
+            AWS_S3_BUCKET: s3Bucket.bucket.apply((bucket) => bucket),
             PUSHER_APP_ID: config.get('PUSHER_APP_ID') || '',
             PUSHER_KEY: config.get('PUSHER_KEY') || '',
             PUSHER_SECRET: config.get('PUSHER_SECRET') || '',
@@ -408,6 +473,7 @@ export const initialLambdaFunctions = async (
             BREVO_API_KEY: config.get('BREVO_API_KEY') || '',
             MAPPING_BASE_URL: mappingModuleUrl,
             DP_LICENSE_KEY: config.require('INGESTRO_LICENSE_KEY'),
+            CUSTOM_DOMAIN: config.get('customDomain') || '',
           },
         },
         ...(shouldMountEfs
@@ -421,7 +487,13 @@ export const initialLambdaFunctions = async (
       },
       {
         dependsOn: shouldMountEfs
-          ? [loggingService, s3Bucket, efsAccessPoint, waiter, accessPointWaiter]
+          ? [
+              loggingService,
+              s3Bucket,
+              efsAccessPoint,
+              waiter,
+              accessPointWaiter,
+            ]
           : [loggingService, s3Bucket],
       },
     );
@@ -444,24 +516,31 @@ export const initialLambdaFunctions = async (
   // Add S3 trigger for email-listener
   if (emailListenerFunction) {
     // Permission for S3 to invoke Lambda
-    const s3Permission = new aws.lambda.Permission('email-listener-s3-permission', {
-      action: 'lambda:InvokeFunction',
-      function: emailListenerFunction.name,
-      principal: 's3.amazonaws.com',
-      sourceArn: s3Bucket.arn,
-    });
+    const s3Permission = new aws.lambda.Permission(
+      `${functionPrefix}-email-listener-s3-permission`,
+      {
+        action: 'lambda:InvokeFunction',
+        function: emailListenerFunction.name,
+        principal: 's3.amazonaws.com',
+        sourceArn: s3Bucket.arn,
+      },
+    );
 
     // S3 notification for object created
-    new aws.s3.BucketNotification('email-listener-s3-notification', {
-      bucket: s3Bucket.id,
-      lambdaFunctions: [
-        {
-          lambdaFunctionArn: emailListenerFunction.arn,
-          events: ['s3:ObjectCreated:*'],
-          filterPrefix: 'emails/',
-        },
-      ],
-    }, { dependsOn: [s3Permission] });
+    new aws.s3.BucketNotification(
+      `${functionPrefix}-email-listener-s3-notification`,
+      {
+        bucket: s3Bucket.id,
+        lambdaFunctions: [
+          {
+            lambdaFunctionArn: emailListenerFunction.arn,
+            events: ['s3:ObjectCreated:*'],
+            filterPrefix: 'emails/',
+          },
+        ],
+      },
+      { dependsOn: [s3Permission] },
+    );
   }
 
   // ------------- SETUP EIP FOR LAMBDA -------------
@@ -504,7 +583,38 @@ export const initialLambdaFunctions = async (
 
   // ------------- SETUP API GATEWAY ---------------
   if (managementFunction) {
-    await initialAPIGateway(managementFunction);
+    const apiGateway = initialAPIGateway(managementFunction);
+    // Expose a stable endpoint output for the deployment.
+    // - If custom domain is configured, prefer that.
+    // - Otherwise use the default execute-api URL (includes stage path).
+    const baseUrl = customDomain
+      ? pulumi.interpolate`https://${customDomain}`
+      : apiGateway.endpoint.url;
+    deployedEndpoint = pulumi
+      .output(baseUrl)
+      .apply((url) => (url.endsWith('/') ? url.slice(0, -1) : url))
+      .apply((url) => `${url}/dp`);
+
+    if (customDomain) {
+      console.log('✅ API Gateway configured with custom domain');
+      console.log('📝 Next steps:');
+      console.log(
+        '   1. Add the CNAME record to your DNS provider (details shown above)',
+      );
+      console.log(
+        '   2. Your API will be available at your custom domain after DNS propagation',
+      );
+    } else {
+      console.log(
+        'ℹ️  API Gateway configured with default domain. To use custom domain:',
+      );
+      console.log(
+        '   1. Add "customDomain" config (e.g., "api.yourdomain.com")',
+      );
+      console.log(
+        '   2. Add "certificateArn" config with the ACM certificate ARN for that domain (see scripts/create-certificate.sh).',
+      );
+    }
   }
   // ------------- END SETUP API GATEWAY -------------
 
@@ -512,7 +622,12 @@ export const initialLambdaFunctions = async (
   await initialScheduleService();
   // --------------------- END SETUP SCHEDULE ---------------------
 
-  return;
+  if (!deployedEndpoint) {
+    throw new Error(
+      'API Gateway endpoint was not created (management function missing).',
+    );
+  }
+  return deployedEndpoint;
 };
 
 export const getLambdaName = () => lambdaName;

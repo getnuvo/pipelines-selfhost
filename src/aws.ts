@@ -1,12 +1,17 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import { initialLambdaFunctions } from './utils/lambda.deployment';
+import { SESClient, ListReceiptRuleSetsCommand } from '@aws-sdk/client-ses';
+import {
+  initialLambdaFunctions,
+  initS3Bucket,
+} from './utils/lambda.deployment';
 
 // Exports will be assigned inside run()
 export let docdbEndpoint: pulumi.Output<string> | undefined;
 export let docdbReaderEndpoint: pulumi.Output<string> | undefined;
 export let docdbConnectionString: pulumi.Output<string> | undefined;
 export let dnsRecord: any | undefined;
+export let endpoint: pulumi.Output<string> | undefined;
 
 export const run = async () => {
   const config = new pulumi.Config();
@@ -160,95 +165,142 @@ export const run = async () => {
   docdbReaderEndpoint = cluster.readerEndpoint;
   docdbConnectionString = pulumi.interpolate`mongodb://${masterUsername}:${masterPassword}@${cluster.endpoint}:27017/?tls=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`;
 
-  // const assetBucketName =
-  //   config.get('assetBucketName') || 'dp-self-hosted-assets';
-  // const emailDomain = config.get('sesEmailDomain') || '';
-  // const emailBucket = new aws.s3.Bucket(assetBucketName, {
-  //   acl: 'private',
-  // });
+  const s3Bucket = await initS3Bucket();
+  endpoint = await initialLambdaFunctions(docdbConnectionString, s3Bucket);
 
-  // // Add bucket policy to allow SES to write to the bucket
-  // const bucketPolicy = new aws.s3.BucketPolicy(`${assetBucketName}-policy`, {
-  //   bucket: emailBucket.bucket,
-  //   policy: emailBucket.bucket.apply((bucketName) =>
-  //     JSON.stringify({
-  //       Version: '2012-10-17',
-  //       Statement: [
-  //         {
-  //           Effect: 'Allow',
-  //           Principal: { Service: 'ses.amazonaws.com' },
-  //           Action: ['s3:PutObject', 's3:PutObjectAcl'],
-  //           Resource: `arn:aws:s3:::${bucketName}/*`,
-  //         },
-  //       ],
-  //     }),
-  //   ),
-  // });
+  const emailDomain = config.get('customDomain');
 
-  // // Create a new SES Domain Identity (no dkimSigningEnabled property)
-  // const domainIdentity = new aws.ses.DomainIdentity(
-  //   'DPSelfHostedDomainIdentity',
-  //   {
-  //     domain: emailDomain,
-  //   },
-  // );
+  if (emailDomain) {
+    // Add bucket policy to allow SES to write to the bucket
+    const bucketPolicy = new aws.s3.BucketPolicy(`${prefix}-s3-ses-policy`, {
+      bucket: s3Bucket.bucket,
+      policy: s3Bucket.bucket.apply((bucketName) =>
+        JSON.stringify({
+          Version: '2012-10-17',
+          Statement: [
+            {
+              Effect: 'Allow',
+              Principal: { Service: 'ses.amazonaws.com' },
+              Action: ['s3:PutObject', 's3:PutObjectAcl'],
+              Resource: `arn:aws:s3:::${bucketName}/*`,
+            },
+          ],
+        }),
+      ),
+    });
 
-  // const currentRuleSet = aws.ses.getActiveReceiptRuleSet({}).then((rs) => {
-  //   if (!rs || !rs.ruleSetName) {
-  //     const ruleSetName = 'dp-self-hosted-rule-set';
-  //     const receiptRuleSet = new aws.ses.ReceiptRuleSet('receiptRuleSet', {
-  //       ruleSetName,
-  //     });
-  //     return ruleSetName;
-  //   }
-  //   return rs.ruleSetName;
-  // });
+    // Create a new SES Domain Identity (no dkimSigningEnabled property)
+    const domainIdentity = new aws.ses.DomainIdentity(
+      `${prefix}-domain-identity`,
+      {
+        domain: emailDomain,
+      },
+    );
 
-  // // Add the new rule to the duplicated rule set
-  // const newReceiptRule = new aws.ses.ReceiptRule(
-  //   'DpReceiptRule',
-  //   {
-  //     ruleSetName: currentRuleSet,
-  //     enabled: true,
-  //     recipients: ['wim@dp.getnuvo.ai'],
-  //     s3Actions: [
-  //       {
-  //         position: 1,
-  //         bucketName: emailBucket.bucket,
-  //         objectKeyPrefix: 'emails/',
-  //       },
-  //     ],
-  //     scanEnabled: true,
-  //     tlsPolicy: 'Optional',
-  //   },
-  //   {
-  //     dependsOn: [emailBucket, bucketPolicy],
-  //   },
-  // );
+    const awsProfile = config.get('profile');
+    const sesClient = new SESClient({
+      region: aws.config.region,
+      profile: awsProfile,
+    });
+    const listRuleSets = async () => {
+      const result = await sesClient.send(new ListReceiptRuleSetsCommand({}));
+      return result.RuleSets?.map((ruleSet) => ruleSet.Name || '') || [];
+    };
 
-  // // Activate the duplicated rule set
-  // const activateDuplicatedRuleSet = new aws.ses.ActiveReceiptRuleSet(
-  //   'activateDuplicatedRuleSet',
-  //   {
-  //     ruleSetName: currentRuleSet,
-  //   },
-  // );
+    const existingRuleSets = await listRuleSets();
+    const suffixes = existingRuleSets
+      .map((name) => {
+        const match = name.match(/\d+$/);
+        return match ? parseInt(match[0], 10) : 0;
+      })
+      .filter((num) => num > 0);
+    const nextSuffix = suffixes.length > 0 ? Math.max(...suffixes) + 1 : 1;
+    const targetRuleSetName = `${prefix}-receipt-rule-set-${nextSuffix}`;
 
-  // const awsRegion = aws.config.region || 'us-east-1';
+    const ruleSetExists = existingRuleSets.includes(targetRuleSetName);
+    let currentRuleSet = targetRuleSetName;
+    if (!ruleSetExists) {
+      new aws.ses.ReceiptRuleSet(`${prefix}-receipt-rule-set-${nextSuffix}`, {
+        ruleSetName: targetRuleSetName,
+      });
+    }
 
-  // Export the ARN, domain, verification token, and DKIM tokens as CNAME records
-  // dnsRecord = {
-  //   identityDomain: {
-  //     name: `_amazonses.${emailDomain}`,
-  //     type: 'TXT',
-  //     value: domainIdentity.verificationToken,
-  //   },
-  //   inboundSmtpRecord: {
-  //     name: emailDomain,
-  //     type: 'MX',
-  //     value: `10 inbound-smtp.${awsRegion}.amazonaws.com`,
-  //   },
-  // };
+    // Add the new rule to the duplicated rule set
+    const testReceiptRule = new aws.ses.ReceiptRule(
+      `${prefix}-test-receipt-rule`,
+      {
+        ruleSetName: currentRuleSet,
+        enabled: true,
+        recipients: [`test@${emailDomain}`],
+        s3Actions: [
+          {
+            position: 1,
+            bucketName: s3Bucket.bucket,
+            objectKeyPrefix: 'emails/test/',
+          },
+        ],
+        scanEnabled: true,
+        tlsPolicy: 'Optional',
+      },
+      {
+        dependsOn: [s3Bucket, bucketPolicy],
+      },
+    );
+    const executeReceiptRule = new aws.ses.ReceiptRule(
+      `${prefix}-execute-receipt-rule`,
+      {
+        ruleSetName: currentRuleSet,
+        enabled: true,
+        recipients: [`execute@${emailDomain}`],
+        s3Actions: [
+          {
+            position: 2,
+            bucketName: s3Bucket.bucket,
+            objectKeyPrefix: 'emails/execute/',
+          },
+        ],
+        scanEnabled: true,
+        tlsPolicy: 'Optional',
+      },
+      {
+        dependsOn: [s3Bucket, bucketPolicy],
+      },
+    );
 
-  await initialLambdaFunctions(docdbConnectionString);
+    // Activate the duplicated rule set
+    new aws.ses.ActiveReceiptRuleSet(
+      `${prefix}-activate-duplicated-rule-set`,
+      {
+        ruleSetName: currentRuleSet,
+      },
+      {
+        dependsOn: [testReceiptRule, executeReceiptRule],
+      },
+    );
+
+    const awsRegion = aws.config.region || 'us-east-1';
+
+    // Export the ARN, domain, verification token, and DKIM tokens as CNAME records
+    domainIdentity.verificationToken.apply((token) => {
+      console.log('DNS Records: ', {
+        identityDomain: {
+          name: `_amazonses.${emailDomain}`,
+          type: 'TXT',
+          value: token,
+        },
+        inboundSmtpRecord: {
+          name: emailDomain,
+          type: 'MX',
+          value: `10 inbound-smtp.${awsRegion}.amazonaws.com`,
+        },
+      });
+    });
+  }
+
+  return {
+    endpoint,
+    docdbEndpoint,
+    docdbReaderEndpoint,
+    docdbConnectionString,
+  };
 };

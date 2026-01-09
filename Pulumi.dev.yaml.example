@@ -10,6 +10,9 @@ config:
   # AWS provider settings required for mapping module (EC2, IAM, etc.)
   aws:region: eu-central-1
   # aws:profile: default  # uncomment & change if you use a named profile
+  # AWS custom domain before add this value make sure you want to use your custom domain
+  # pipeline-self-host:customDomain: ""
+  # pipeline-self-host:certificateArn: "" 
 
   dp-self-hosted-azure:codeVersion: "0.1.4"
   dp-self-hosted-azure:customDomain: "dp-self-hosted.filedocks.com"
@@ -72,3 +75,10 @@ config:
   dp-self-hosted-azure:mappingS3AccessKeyId: ""                 # --secret recommended
   dp-self-hosted-azure:mappingS3SecretAccessKey: ""             # --secret recommended
   dp-self-hosted-azure:mappingBucketNamePipeline: ""
+
+  # In the case that need to custom the domain AWS/AZURE
+  pipeline-self-host:customDomain: ""
+  # In the case that need to custom the domain for AWS needed to add
+  pipeline-self-host:certificateArn: ""
+  # [Optional] In the case uses Sendgrid as an email provider and to receive email attachment should add some secret key to secure the endpoint
+  pipeline-self-host:sendgridReceiverSecretKey: ""

@@ -1,7 +1,8 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as aws from '@pulumi/aws';
-import {Bucket} from "@pulumi/aws/s3";
-import {Output} from "@pulumi/pulumi";
+import { Bucket } from '@pulumi/aws/s3';
+import { Output } from '@pulumi/pulumi';
+import { serializationConfigValue } from './string';
 
 const config = new pulumi.Config();
 const functionPrefix = config.require('prefix');
@@ -14,24 +15,33 @@ const rootVolumeSize = config.getNumber('rootVolumeSize') || 30; // GiB
 const mappingLlmProvider = config.get('mappingLlmProvider') || 'AZURE';
 const mappingLlmTemperature = config.getNumber('mappingLlmTemperature') ?? 0;
 const mappingAzureOpenaiApiKey = config.get('mappingAzureOpenaiApiKey') || '';
-const mappingAzureOpenaiEndpoint = config.get('mappingAzureOpenaiEndpoint') || '';
-const mappingAzureOpenaiApiVersion = config.get('mappingAzureOpenaiApiVersion') || '2024-10-21';
-const mappingAzureOpenaiDeploymentName = config.get('mappingAzureOpenaiDeploymentName') || 'gpt-4o-mini';
-const mappingAwsBedrockModelId = config.get('mappingAwsBedrockModelId') || 'anthropic.claude-3-haiku-20240307-v1:0';
-const mappingAwsBedrockAccessKeyId = config.get('mappingAwsBedrockAccessKeyId') || '';
-const mappingAwsBedrockSecretAccessKey = config.get('mappingAwsBedrockSecretAccessKey') || '';
+const mappingAzureOpenaiEndpoint =
+  config.get('mappingAzureOpenaiEndpoint') || '';
+const mappingAzureOpenaiApiVersion =
+  config.get('mappingAzureOpenaiApiVersion') || '2024-10-21';
+const mappingAzureOpenaiDeploymentName =
+  config.get('mappingAzureOpenaiDeploymentName') || 'gpt-4o-mini';
+const mappingAwsBedrockModelId =
+  config.get('mappingAwsBedrockModelId') ||
+  'anthropic.claude-3-haiku-20240307-v1:0';
+const mappingAwsBedrockAccessKeyId =
+  config.get('mappingAwsBedrockAccessKeyId') || '';
+const mappingAwsBedrockSecretAccessKey =
+  config.get('mappingAwsBedrockSecretAccessKey') || '';
 const mappingAwsBedrockRegion = config.get('mappingAwsBedrockRegion') || '';
 const mappingS3Region = config.require('AWS_REGION');
 const mappingS3AccessKeyId = config.require('AWS_ACCESS_KEY');
 const mappingS3SecretAccessKey = config.require('AWS_SECRET_KEY');
-const mappingBucketNamePipeline = config.get('AWS_S3_BUCKET');
 
 /**
  *
  * @returns void
  * Main function to initialize mapping module instance
  */
-export const initialMappingModule = async (dockerToken: string, s3Bucket: Bucket) => {
+export const initialMappingModule = async (
+  dockerToken: string,
+  s3Bucket: Bucket,
+) => {
   const defaultVpc = pulumi.output(aws.ec2.getVpc({ default: true }));
   const defaultSubnetIds = defaultVpc.id.apply((vpcId) =>
     aws.ec2.getSubnets({
@@ -93,7 +103,7 @@ export const initialMappingModule = async (dockerToken: string, s3Bucket: Bucket
 
   const instanceName = `${functionPrefix}-ingestro-mapping-module`;
   const instance = new aws.ec2.Instance(
-      instanceName,
+    instanceName,
     {
       ami: ami.id,
       instanceType,
@@ -128,12 +138,6 @@ const dockerHubLoginSnippet = (dockerToken: string) =>
     return "echo 'Docker Hub credentials not provided; skipping docker login'\n";
   });
 
-// Simple quote escape helper for embedding values safely inside double quotes
-const q = (val: string | number | undefined) => {
-  if (val === undefined) return '';
-  return String(val).replace(/"/g, '\\"');
-};
-
 const userData = (dockerToken: string, bucketName: Output<string>) =>
   pulumi.all([dockerHubLoginSnippet(dockerToken), bucketName]).apply(
     ([loginSnippet, s3BucketName]) => `#!/bin/bash
@@ -163,19 +167,19 @@ services:
     environment:
       - NODE_ENV=production
       - MAPPING_PORT=8000
-      - MAPPING_LLM_PROVIDER=${q(mappingLlmProvider)}
+      - MAPPING_LLM_PROVIDER=${serializationConfigValue(mappingLlmProvider)}
       - MAPPING_LLM_TEMPERATURE=${mappingLlmTemperature}
-      - MAPPING_AZURE_OPENAI_API_KEY=${q(mappingAzureOpenaiApiKey)}
-      - MAPPING_AZURE_OPENAI_ENDPOINT=${q(mappingAzureOpenaiEndpoint)}
-      - MAPPING_AZURE_OPENAI_API_VERSION=${q(mappingAzureOpenaiApiVersion)}
-      - MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME=${q(mappingAzureOpenaiDeploymentName)}
-      - MAPPING_AWS_BEDROCK_MODEL_ID=${q(mappingAwsBedrockModelId)}
-      - MAPPING_AWS_BEDROCK_ACCESS_KEY_ID=${q(mappingAwsBedrockAccessKeyId)}
-      - MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY=${q(mappingAwsBedrockSecretAccessKey)}
-      - MAPPING_AWS_BEDROCK_REGION=${q(mappingAwsBedrockRegion)}
-      - MAPPING_S3_REGION=${q(mappingS3Region)}
-      - MAPPING_S3_ACCESS_KEY_ID=${q(mappingS3AccessKeyId)}
-      - MAPPING_S3_SECRET_ACCESS_KEY=${q(mappingS3SecretAccessKey)}
+      - MAPPING_AZURE_OPENAI_API_KEY=${serializationConfigValue(mappingAzureOpenaiApiKey)}
+      - MAPPING_AZURE_OPENAI_ENDPOINT=${serializationConfigValue(mappingAzureOpenaiEndpoint)}
+      - MAPPING_AZURE_OPENAI_API_VERSION=${serializationConfigValue(mappingAzureOpenaiApiVersion)}
+      - MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME=${serializationConfigValue(mappingAzureOpenaiDeploymentName)}
+      - MAPPING_AWS_BEDROCK_MODEL_ID=${serializationConfigValue(mappingAwsBedrockModelId)}
+      - MAPPING_AWS_BEDROCK_ACCESS_KEY_ID=${serializationConfigValue(mappingAwsBedrockAccessKeyId)}
+      - MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY=${serializationConfigValue(mappingAwsBedrockSecretAccessKey)}
+      - MAPPING_AWS_BEDROCK_REGION=${serializationConfigValue(mappingAwsBedrockRegion)}
+      - MAPPING_S3_REGION=${serializationConfigValue(mappingS3Region)}
+      - MAPPING_S3_ACCESS_KEY_ID=${serializationConfigValue(mappingS3AccessKeyId)}
+      - MAPPING_S3_SECRET_ACCESS_KEY=${serializationConfigValue(mappingS3SecretAccessKey)}
       - MAPPING_BUCKET_NAME_PIPELINE=${s3BucketName}
 
 EOF
