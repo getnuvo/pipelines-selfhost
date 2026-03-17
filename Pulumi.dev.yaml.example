@@ -49,7 +49,7 @@ config:
   # Mapping Module base settings (required by mapping.deployment.ts)
   # ------------------------------------------------------------
   dp-self-hosted-azure:functionPrefix: "mapping-dev"            # REQUIRED - used for naming AWS resources
-  dp-self-hosted-azure:dockerImageName: "getnuvo/mapping:latest" # Docker image reference
+  dp-self-hosted-azure:dockerImageName: "ingestro/mapping:latest" # Docker image reference
   dp-self-hosted-azure:dockerHubUsername: "getnuvo"              # Docker Hub username (omit if using ECR)
   dp-self-hosted-azure:ec2InstanceType: "t3.large"               # EC2 instance type
   dp-self-hosted-azure:rootVolumeSize: 30                        # Root volume size (GiB)
