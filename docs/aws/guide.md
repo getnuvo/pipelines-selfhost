@@ -176,7 +176,7 @@ config:
   pipeline-self-host:docdbPassword: '<SET_A_SECURE_PASSWORD>' # Required
 
   # Mapping Module Settings
-  pipeline-self-host:dockerImageName: 'getnuvo/mapping:latest'
+  pipeline-self-host:dockerImageName: 'ingestro/mapping:latest'
   pipeline-self-host:dockerHubUsername: 'getnuvo'
   pipeline-self-host:ec2InstanceType: 't3.large'
   pipeline-self-host:rootVolumeSize: 30

@@ -7,7 +7,7 @@ import { serializationConfigValue } from './string';
 const config = new pulumi.Config();
 const functionPrefix = config.require('prefix');
 const dockerImageName =
-  config.get('dockerImageName') || 'getnuvo/mapping:latest'; // e.g. dockerhub repo/image:tag
+  config.get('dockerImageName') || 'ingestro/mapping:latest'; // e.g. dockerhub repo/image:tag
 const dockerHubUsername = config.get('dockerHubUsername') || 'getnuvo';
 const instanceType = config.get('ec2InstanceType') || 't3.xlarge';
 const rootVolumeSize = config.getNumber('rootVolumeSize') || 30; // GiB

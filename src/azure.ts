@@ -46,7 +46,7 @@ export const run = () => {
   const cosmosStorageSizeGb =
     config.getNumber('COSMOS_MONGO_STORAGE_SIZE_GB') || 64;
   const mappingContainerImage =
-    config.require('MAPPING_CONTAINER_IMAGE') || 'getnuvo/mapping:latest';
+    config.get('MAPPING_CONTAINER_IMAGE') || 'ingestro/mapping:latest';
   const mappingDockerServer =
     config.get('MAPPING_DOCKER_SERVER') || 'https://registry.hub.docker.com';
   const mappingAppName =
