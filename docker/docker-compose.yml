@@ -1,0 +1,92 @@
+# Ingestro Pipelines (DP) self-hosted with docker compose.
+# Copy of nuvo-dp-v2-api/docker/dp-compose/docker-compose.yml; keep both in sync.
+# Deployed to the VM by `provider: azure-docker` (scripts/azure-docker/deploy.sh renders dp.env/mapping.env).
+# Run exactly one dp-scheduler, otherwise scheduled executions are triggered twice.
+
+name: ingestro-dp
+
+x-dp: &dp
+  image: ${DP_IMAGE:-ingestro/dp:latest}
+  restart: unless-stopped
+  env_file: dp.env
+  environment:
+    CLOUD_PROVIDER: AZURE
+    AZURE_FUNCTION_BASE_URL: http://dp-worker:8081
+    MAPPING_BASE_URL: http://mapping:8000
+  volumes:
+    # Shared between api and worker: the worker writes transformation output here and the api reads it.
+    - dp-data:/mnt/hyperformula-column
+  networks:
+    - ingestro
+  logging:
+    driver: json-file
+    options:
+      max-size: 50m
+      max-file: '5'
+
+services:
+  dp-api:
+    <<: *dp
+    command: ['node', 'api/index.js']
+    ports:
+      - '${DP_API_PORT:-8080}:8080'
+    depends_on:
+      dp-worker:
+        condition: service_healthy
+      mapping:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/dp/api/v1/management/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  dp-worker:
+    <<: *dp
+    command: ['node', 'worker/index.js']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8081/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  dp-scheduler:
+    <<: *dp
+    command: ['node', 'scheduler/index.js']
+    depends_on:
+      dp-worker:
+        condition: service_healthy
+
+  mapping:
+    image: ${MAPPING_IMAGE:-ingestro/mapping:latest}
+    restart: unless-stopped
+    env_file: mapping.env
+    environment:
+      MAPPING_PORT: '8000'
+    networks:
+      - ingestro
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: '5'
+
+volumes:
+  dp-data:
+
+networks:
+  ingestro:

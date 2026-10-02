@@ -1,0 +1,29 @@
+#cloud-config
+# First boot only. Deploys and upgrades are done by the Run Command (deploy.sh).
+
+# Data disk (LUN 0) holds Docker images and the shared dp-data volume.
+disk_setup:
+  /dev/disk/azure/scsi1/lun0:
+    table_type: gpt
+    layout: true
+    overwrite: false
+fs_setup:
+  - label: dockerdata
+    filesystem: ext4
+    device: /dev/disk/azure/scsi1/lun0
+    partition: auto
+mounts:
+  - ['LABEL=dockerdata', '/var/lib/docker', 'ext4', 'defaults,nofail', '0', '2']
+
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - jq
+  - curl
+  - unattended-upgrades
+
+runcmd:
+  - systemctl enable --now docker
+  - install -d -m 700 /opt/ingestro

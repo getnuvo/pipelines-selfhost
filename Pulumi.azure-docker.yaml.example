@@ -1,0 +1,64 @@
+# provider: azure-docker — Ingestro DP on an Azure VM with docker compose, private network only.
+# One stack per environment: copy to Pulumi.<customer>-dev.yaml / Pulumi.<customer>-prod.yaml.
+# Set secrets with `pulumi config set --secret <key> <value>`, never in plain text here.
+# See docs/azure-docker/guide.md.
+
+config:
+  pipeline-self-host:provider: azure-docker
+  pipeline-self-host:prefix: ingestro
+  pipeline-self-host:environment: dev # dev | prod
+  pipeline-self-host:location: germanywestcentral
+
+  # Image tags (ingestro/dp:<version>, ingestro/mapping:<mappingVersion>)
+  pipeline-self-host:version: '1.0.0'
+  pipeline-self-host:mappingVersion: latest
+  # Optional: pull mirrored images from your ACR (managed identity) instead of Docker Hub
+  # pipeline-self-host:acrLoginServer: myregistry.azurecr.io
+  # pipeline-self-host:acrId: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ContainerRegistry/registries/myregistry
+
+  # Secrets (pulumi config set --secret)
+  # pipeline-self-host:INGESTRO_LICENSE_KEY
+  # pipeline-self-host:MONGO_CONNECTION_STRING        # Atlas private-endpoint SRV string
+  # pipeline-self-host:S3_CONNECTOR_SECRET_KEY        # random, keep stable
+  # pipeline-self-host:mappingAzureOpenaiApiKey
+  # pipeline-self-host:PUSHER_SECRET                  # optional
+  # pipeline-self-host:BREVO_API_KEY                  # optional
+
+  # VM
+  pipeline-self-host:vmSize: Standard_D4s_v5
+  pipeline-self-host:dataDiskSizeGb: 128
+  pipeline-self-host:adminUsername: ingestro
+  pipeline-self-host:adminSshPublicKey: 'ssh-ed25519 AAAA... ops@company'
+
+  # Spoke network (must not overlap the hub / AVD / other spokes)
+  pipeline-self-host:spokeAddressSpace: 10.20.0.0/16
+  pipeline-self-host:vmSubnetPrefix: 10.20.1.0/24
+  pipeline-self-host:peSubnetPrefix: 10.20.2.0/24
+
+  # Hub inputs (customer-owned)
+  pipeline-self-host:firewallPrivateIp: 10.0.0.4 # UDR next hop for all egress
+  pipeline-self-host:appGatewaySubnetCidr: 10.0.1.0/24 # only source allowed to reach the DP API
+  pipeline-self-host:adminSourceCidr: 10.0.2.0/24 # Bastion / admin subnet allowed to SSH
+  pipeline-self-host:dnsServers:
+    - 10.0.0.4 # Azure Firewall DNS proxy (omit to use Azure DNS)
+  pipeline-self-host:privateDnsZoneIds:
+    blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
+    vault: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net
+
+  # MongoDB Atlas Private Link (Azure side); register the output endpoint in Atlas
+  pipeline-self-host:ATLAS_PRIVATE_LINK_SERVICE_ID: /subscriptions/<atlas-sub>/resourceGroups/<atlas-rg>/providers/Microsoft.Network/privateLinkServices/<pls>
+  pipeline-self-host:DB_NAME: ingestro
+  pipeline-self-host:LOG_DB_NAME: ingestro_logging
+
+  # Origins of the app embedding Ingestro (Blob CORS for SAS uploads/downloads)
+  pipeline-self-host:allowedOrigins:
+    - https://ingestro.company.local
+
+  # Mapping module LLM
+  pipeline-self-host:mappingLlmProvider: AZURE
+  pipeline-self-host:mappingAzureOpenaiEndpoint: https://<resource>.openai.azure.com
+  pipeline-self-host:mappingAzureOpenaiDeploymentName: gpt-4o-mini
+
+  # Optional
+  # pipeline-self-host:PUSHER_APP_ID: ''
+  # pipeline-self-host:PUSHER_KEY: ''
