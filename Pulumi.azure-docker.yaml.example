@@ -11,7 +11,7 @@ config:
 
   # Image tags (ingestro/dp:<version>, ingestro/mapping:<mappingVersion>)
   pipeline-self-host:version: '1.0.0'
-  pipeline-self-host:mappingVersion: latest
+  pipeline-self-host:mappingVersion: '<mapping-tag>' # pin a concrete tag; `latest` moves and breaks rollback
   # Optional: pull mirrored images from your ACR (managed identity) instead of Docker Hub
   # pipeline-self-host:acrLoginServer: myregistry.azurecr.io
   # pipeline-self-host:acrId: /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.ContainerRegistry/registries/myregistry

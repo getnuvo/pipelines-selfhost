@@ -24,24 +24,67 @@ command -v docker >/dev/null || {
   echo "docker is not installed (cloud-init failed?)" >&2
   exit 1
 }
+mountpoint -q /var/lib/docker || {
+  echo "data disk is not mounted at /var/lib/docker (cloud-init disk setup failed?)" >&2
+  exit 1
+}
+
+# retry <attempts> <delay-seconds> <command...>
+retry() {
+  local attempts=$1 delay=$2 attempt
+  shift 2
+  for attempt in $(seq 1 "$attempts"); do
+    "$@" && return 0
+    echo "'$1' failed (attempt ${attempt}/${attempts}), retrying in ${delay}s" >&2
+    sleep "$delay"
+  done
+  return 1
+}
 
 imds_token() {
   curl -sSf -H Metadata:true "${IMDS}?api-version=2018-02-01&resource=$1" | jq -r .access_token
 }
 
 KV_TOKEN=$(imds_token 'https%3A%2F%2Fvault.azure.net')
-# Retries cover a freshly created role assignment that has not propagated yet (403).
+# Retries only transient failures and 403 (a freshly created role assignment that has not
+# propagated yet); anything else (404, 401, ...) fails immediately.
 get_secret() {
-  local attempt
+  local attempt code body
+  body=$(mktemp)
   for attempt in $(seq 1 30); do
-    if curl -sSf -H "Authorization: Bearer ${KV_TOKEN}" \
-      "https://${VAULT_NAME}.vault.azure.net/secrets/$1?api-version=7.4" | jq -er .value; then
+    code=$(curl -sS -o "$body" -w '%{http_code}' -H "Authorization: Bearer ${KV_TOKEN}" \
+      "https://${VAULT_NAME}.vault.azure.net/secrets/$1?api-version=7.4") || true
+    code=${code:-000}
+    if [ "$code" = "200" ]; then
+      jq -er .value "$body"
+      rm -f "$body"
       return 0
     fi
-    echo "Key Vault read of '$1' failed (attempt ${attempt}), retrying" >&2
+    case "$code" in
+      403 | 429 | 5?? | 000) ;;
+      *)
+        echo "Key Vault read of '$1' failed with HTTP ${code}" >&2
+        rm -f "$body"
+        return 1
+        ;;
+    esac
+    echo "Key Vault read of '$1' returned HTTP ${code} (attempt ${attempt}), retrying" >&2
     sleep 10
   done
+  rm -f "$body"
   return 1
+}
+
+registry_login() {
+  if [ "$REGISTRY_AUTH" = "acr" ]; then
+    curl -sSf -X POST "https://${REGISTRY_SERVER}/oauth2/exchange" \
+      -d "grant_type=access_token&service=${REGISTRY_SERVER}&access_token=$(imds_token 'https%3A%2F%2Fmanagement.azure.com%2F')" |
+      jq -er .refresh_token |
+      docker login "$REGISTRY_SERVER" -u 00000000-0000-0000-0000-000000000000 --password-stdin
+  else
+    get_secret registry-password |
+      docker login "$REGISTRY_SERVER" -u "$REGISTRY_USERNAME" --password-stdin
+  fi
 }
 
 umask 077
@@ -56,7 +99,8 @@ for entry in $SECRET_MAP; do
   var=${rest%%=*}
   name=${rest#*=}
   value=$(get_secret "$name")
-  printf '%s=%s\n' "$var" "$value" >>"$DIR/$file.env.tmp"
+  # Compose interpolates `$` in env files; `$$` is a literal `$`.
+  printf '%s=%s\n' "$var" "${value//\$/\$\$}" >>"$DIR/$file.env.tmp"
 done
 mv "$DIR/dp.env.tmp" "$DIR/dp.env"
 mv "$DIR/mapping.env.tmp" "$DIR/mapping.env"
@@ -64,24 +108,17 @@ mv "$DIR/mapping.env.tmp" "$DIR/mapping.env"
 printf 'DP_IMAGE=%s\nMAPPING_IMAGE=%s\nDP_API_PORT=%s\n' \
   "$DP_IMAGE" "$MAPPING_IMAGE" "$DP_API_PORT" >"$DIR/.env"
 
-if [ "$REGISTRY_AUTH" = "acr" ]; then
-  ARM_TOKEN=$(imds_token 'https%3A%2F%2Fmanagement.azure.com%2F')
-  curl -sSf -X POST "https://${REGISTRY_SERVER}/oauth2/exchange" \
-    -d "grant_type=access_token&service=${REGISTRY_SERVER}&access_token=${ARM_TOKEN}" |
-    jq -r .refresh_token |
-    docker login "$REGISTRY_SERVER" -u 00000000-0000-0000-0000-000000000000 --password-stdin
-else
-  get_secret registry-password |
-    docker login "$REGISTRY_SERVER" -u "$REGISTRY_USERNAME" --password-stdin
-fi
-
 cd "$DIR"
-docker compose pull
+# Retried: an AcrPull role assignment created in the same deployment may still be propagating.
+retry 10 15 registry_login
+retry 10 15 docker compose pull
 docker compose up -d --remove-orphans
 
+services=$(docker compose config --services | sort)
 for _ in $(seq 1 40); do
   status=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q dp-api)" 2>/dev/null || true)
-  if [ "$status" = "healthy" ]; then
+  running=$(docker compose ps --status running --services | sort)
+  if [ "$status" = "healthy" ] && [ "$running" = "$services" ]; then
     docker image prune -f >/dev/null
     echo "Ingestro DP is healthy (${DP_IMAGE})"
     exit 0
@@ -89,7 +126,7 @@ for _ in $(seq 1 40); do
   sleep 6
 done
 
-echo "dp-api did not become healthy" >&2
+echo "Ingestro DP did not become healthy (dp-api: ${status:-unknown})" >&2
 docker compose ps >&2
-docker compose logs --tail 50 dp-api dp-worker >&2
+docker compose logs --tail 50 >&2
 exit 1

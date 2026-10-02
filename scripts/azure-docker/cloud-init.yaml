@@ -16,7 +16,7 @@ mounts:
   - ['LABEL=dockerdata', '/var/lib/docker', 'ext4', 'defaults,nofail', '0', '2']
 
 package_update: true
-package_upgrade: true
+# No package_upgrade: it slows first boot; unattended-upgrades applies security updates.
 packages:
   - docker.io
   - docker-compose-v2

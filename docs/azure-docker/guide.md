@@ -17,16 +17,16 @@ Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure 
  └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| Resource               | Notes                                                                                                     |
-| ---------------------- | --------------------------------------------------------------------------------------------------------- |
-| Resource group         | `<prefix>-<environment>-rg`                                                                               |
-| Spoke VNet             | `snet-vm` (VM) and `snet-pe` (Private Endpoints); `defaultOutboundAccess: false`                          |
-| Route table            | `0.0.0.0/0 → firewallPrivateIp`                                                                           |
-| NSG                    | Inbound `8080` from `appGatewaySubnetCidr` and `22` from `adminSourceCidr`; all other VNet inbound denied |
-| VM                     | No public IP, SSH key only, system-assigned identity, data disk mounted at `/var/lib/docker`              |
-| Storage account        | Public access disabled, blob Private Endpoint, CORS limited to `allowedOrigins`                           |
-| Key Vault              | RBAC, public access disabled, Private Endpoint; holds every secret the containers use                     |
-| Atlas Private Endpoint | Azure side only (manual approval in Atlas)                                                                |
+| Resource               | Notes                                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Resource group         | `<prefix>-<environment>-rg`                                                                                                 |
+| Spoke VNet             | `snet-vm` = `<prefix>-<environment>-vm-subnet`, `snet-pe` = `<prefix>-<environment>-pe-subnet` (no default outbound access) |
+| Route table            | `0.0.0.0/0 → firewallPrivateIp`                                                                                             |
+| NSG                    | Inbound `8080` from `appGatewaySubnetCidr` and `22` from `adminSourceCidr`; all other VNet inbound denied                   |
+| VM                     | No public IP, SSH key only, system-assigned identity, data disk mounted at `/var/lib/docker`                                |
+| Storage account        | Public access disabled, blob Private Endpoint, CORS limited to `allowedOrigins`                                             |
+| Key Vault              | RBAC, public access disabled, Private Endpoint; holds every secret the containers use                                       |
+| Atlas Private Endpoint | Azure side only (manual approval in Atlas)                                                                                  |
 
 ## How deploy and upgrade work
 
@@ -108,10 +108,14 @@ Repeat with a `<customer>-prod` stack and the prod license key.
 | `api.brevo.com`                                                              | Email notifications, if enabled                       |
 | Your data sources / destinations                                             | Pipeline input and output connectors                  |
 
+The deployer machine also calls `api-gateway.ingestro.com` during `pulumi up` (registry key for Docker Hub pulls).
+
+**Azure platform endpoints:** the VM agent, which runs the `ingestro-deploy` Run Command, and IMDS (managed identity tokens) use `168.63.129.16` and `169.254.169.254`. Azure does not route these through the UDR, but they must not be blocked by an NSG or a guest firewall. If the agent can't reach them, the Run Command never starts and `pulumi up` times out.
+
 ## Operations
 
 ```bash
-ssh ingestro@<vm-private-ip>              # via Bastion / admin network
+ssh <adminUsername>@<vm-private-ip>              # via Bastion / admin network
 sudo docker compose -f /opt/ingestro/docker-compose.yml ps
 sudo docker compose -f /opt/ingestro/docker-compose.yml logs -f dp-api dp-worker
 df -h /var/lib/docker

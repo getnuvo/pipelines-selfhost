@@ -33,7 +33,10 @@ const toBase64 = (value: string) => Buffer.from(value).toString('base64');
 const envLines = (entries: Record<string, string | undefined>) =>
   Object.entries(entries)
     .filter(([, value]) => value !== undefined && value !== '')
-    .map(([name, value]) => `${name}=${value}`)
+    // Compose interpolates `$` in env files; `$$` is a literal `$`.
+    .map(
+      ([name, value]) => `${name}=${(value as string).replace(/\$/g, '$$$$')}`,
+    )
     .join('\n') + '\n';
 
 // Key Vault secret names allow only [0-9a-zA-Z-].
@@ -48,6 +51,17 @@ export const run = () => {
   const environment = config.require('environment');
   const location = config.get('location') || 'germanywestcentral';
   const name = (suffix: string) => `${prefix}-${environment}-${suffix}`;
+
+  // Azure appends an 8 character suffix; storage accounts and vaults allow 24 characters.
+  const storageAccountName = `${prefix}${environment}sa`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  const keyVaultName = name('kv');
+  if (storageAccountName.length > 16 || keyVaultName.length > 16) {
+    throw new Error(
+      `prefix + environment is too long for Azure names ("${storageAccountName}", "${keyVaultName}" must be <= 16 characters). Use a shorter prefix or environment.`,
+    );
+  }
 
   const dpVersion = config.require('version');
   const mappingVersion = config.get('mappingVersion') || 'latest';
@@ -84,16 +98,20 @@ export const run = () => {
   const logDbName = config.get('LOG_DB_NAME') || 'ingestro_logging';
   const allowedOrigins = config.requireObject<string[]>('allowedOrigins');
 
+  // May hold credentials, so it is read and passed on as a secret.
   const mappingModuleEnv =
-    config.getObject<Record<string, string>>('MAPPING_MODULE_ENV') || {};
+    config.getSecretObject<Record<string, string>>('MAPPING_MODULE_ENV') ??
+    pulumi.output({} as Record<string, string>);
 
-  const deploymentPayload = pulumi.output(fetchFunctionList());
-  const dockerKey = deploymentPayload.apply((payload) => {
-    if (!payload.docker_key) {
-      throw new Error('API did not return a docker key for this license');
-    }
-    return pulumi.secret(payload.docker_key);
-  });
+  // Only Docker Hub pulls need the registry key from the self-host deployment API.
+  const dockerKey = acrLoginServer
+    ? undefined
+    : pulumi.output(fetchFunctionList()).apply((payload) => {
+        if (!payload.docker_key) {
+          throw new Error('API did not return a docker key for this license');
+        }
+        return pulumi.secret(payload.docker_key);
+      });
 
   const clientConfig = authorization.getClientConfigOutput();
   const roleDefinitionId = (roleId: string) =>
@@ -221,19 +239,16 @@ export const run = () => {
     });
 
   // ---------------- STORAGE ----------------
-  const storageAccount = new storage.StorageAccount(
-    `${prefix}${environment}sa`.replace(/[^a-z0-9]/g, '').slice(0, 16),
-    {
-      resourceGroupName,
-      location,
-      sku: { name: storage.SkuName.Standard_LRS },
-      kind: storage.Kind.StorageV2,
-      minimumTlsVersion: storage.MinimumTlsVersion.TLS1_2,
-      allowBlobPublicAccess: false,
-      publicNetworkAccess: storage.PublicNetworkAccess.Disabled,
-      networkRuleSet: { defaultAction: storage.DefaultAction.Deny },
-    },
-  );
+  const storageAccount = new storage.StorageAccount(storageAccountName, {
+    resourceGroupName,
+    location,
+    sku: { name: storage.SkuName.Standard_LRS },
+    kind: storage.Kind.StorageV2,
+    minimumTlsVersion: storage.MinimumTlsVersion.TLS1_2,
+    allowBlobPublicAccess: false,
+    publicNetworkAccess: storage.PublicNetworkAccess.Disabled,
+    networkRuleSet: { defaultAction: storage.DefaultAction.Deny },
+  });
 
   // Browsers upload/download through SAS URLs, so the host app origin needs CORS.
   new storage.BlobServiceProperties(name('blob-cors'), {
@@ -292,7 +307,7 @@ export const run = () => {
     : undefined;
 
   // ---------------- KEY VAULT ----------------
-  const vault = new keyvault.Vault(name('kv').slice(0, 17), {
+  const vault = new keyvault.Vault(keyVaultName, {
     resourceGroupName,
     location,
     properties: {
@@ -318,56 +333,55 @@ export const run = () => {
     }).result;
 
   // Secrets are written through ARM, so this works with the vault's public access disabled.
-  const secretEntries: {
-    file: 'dp' | 'mapping';
-    env: string;
-    value: pulumi.Input<string> | undefined;
-  }[] = [
-    { file: 'dp', env: 'DP_LICENSE_KEY', value: licenseKey },
-    { file: 'dp', env: 'DATA_PIPELINE_DB_URI', value: mongoConnectionString },
-    {
-      file: 'dp',
-      env: 'AZURE_CONNECTION_STRING',
-      value: storageConnectionString,
-    },
-    { file: 'dp', env: 'AZURE_ACCOUNT_KEY', value: storageAccountKey },
-    { file: 'dp', env: 'AZURE_PRIVATE_TOKEN', value: privateToken },
-    {
-      file: 'dp',
-      env: 'S3_CONNECTOR_SECRET_KEY',
-      value: config.requireSecret('S3_CONNECTOR_SECRET_KEY'),
-    },
-    {
-      file: 'dp',
-      env: 'PUSHER_SECRET',
-      value: config.getSecret('PUSHER_SECRET'),
-    },
-    {
-      file: 'dp',
-      env: 'BREVO_API_KEY',
-      value: config.getSecret('BREVO_API_KEY'),
-    },
-    {
-      file: 'dp',
-      env: 'SENDGRID_RECEIVER_SECRET_KEY',
-      value: config.getSecret('sendgridReceiverSecretKey'),
-    },
-    { file: 'mapping', env: 'MAPPING_LICENSE_KEY', value: licenseKey },
-    {
-      file: 'mapping',
-      env: 'MAPPING_AZURE_BLOB_ACCOUNT_KEY',
-      value: storageAccountKey,
-    },
-    {
-      file: 'mapping',
-      env: 'MAPPING_AZURE_OPENAI_API_KEY',
-      value: config.getSecret('mappingAzureOpenaiApiKey'),
-    },
-  ].filter((entry) => entry.value !== undefined) as {
+  type SecretEntry = {
     file: 'dp' | 'mapping';
     env: string;
     value: pulumi.Input<string>;
-  }[];
+  };
+  const secretEntries = (
+    [
+      { file: 'dp', env: 'DP_LICENSE_KEY', value: licenseKey },
+      { file: 'dp', env: 'DATA_PIPELINE_DB_URI', value: mongoConnectionString },
+      {
+        file: 'dp',
+        env: 'AZURE_CONNECTION_STRING',
+        value: storageConnectionString,
+      },
+      { file: 'dp', env: 'AZURE_ACCOUNT_KEY', value: storageAccountKey },
+      { file: 'dp', env: 'AZURE_PRIVATE_TOKEN', value: privateToken },
+      {
+        file: 'dp',
+        env: 'S3_CONNECTOR_SECRET_KEY',
+        value: config.requireSecret('S3_CONNECTOR_SECRET_KEY'),
+      },
+      {
+        file: 'dp',
+        env: 'PUSHER_SECRET',
+        value: config.getSecret('PUSHER_SECRET'),
+      },
+      {
+        file: 'dp',
+        env: 'BREVO_API_KEY',
+        value: config.getSecret('BREVO_API_KEY'),
+      },
+      {
+        file: 'dp',
+        env: 'SENDGRID_RECEIVER_SECRET_KEY',
+        value: config.getSecret('sendgridReceiverSecretKey'),
+      },
+      { file: 'mapping', env: 'MAPPING_LICENSE_KEY', value: licenseKey },
+      {
+        file: 'mapping',
+        env: 'MAPPING_AZURE_BLOB_ACCOUNT_KEY',
+        value: storageAccountKey,
+      },
+      {
+        file: 'mapping',
+        env: 'MAPPING_AZURE_OPENAI_API_KEY',
+        value: config.getSecret('mappingAzureOpenaiApiKey'),
+      },
+    ] as (Omit<SecretEntry, 'value'> & { value?: pulumi.Input<string> })[]
+  ).filter((entry): entry is SecretEntry => entry.value !== undefined);
 
   const createSecret = (secret: string, value: pulumi.Input<string>) =>
     new keyvault.Secret(name(secret), {
@@ -380,7 +394,7 @@ export const run = () => {
   const secrets = secretEntries.map((entry) =>
     createSecret(secretName(entry.env), entry.value),
   );
-  if (!acrLoginServer) {
+  if (dockerKey) {
     secrets.push(createSecret('registry-password', dockerKey));
   }
 
@@ -454,7 +468,12 @@ export const run = () => {
     return identity.principalId;
   });
 
+  // Role assignment names must be GUIDs.
+  const roleAssignmentName = (suffix: string) =>
+    new random.RandomUuid(name(`${suffix}-id`)).result;
+
   const kvRole = new authorization.RoleAssignment(name('vm-kv-secrets-user'), {
+    roleAssignmentName: roleAssignmentName('vm-kv-secrets-user'),
     principalId: vmPrincipalId,
     principalType: authorization.PrincipalType.ServicePrincipal,
     roleDefinitionId: roleDefinitionId(ROLE_KEY_VAULT_SECRETS_USER),
@@ -462,6 +481,7 @@ export const run = () => {
   });
   const acrRole = acrId
     ? new authorization.RoleAssignment(name('vm-acr-pull'), {
+        roleAssignmentName: roleAssignmentName('vm-acr-pull'),
         principalId: vmPrincipalId,
         principalType: authorization.PrincipalType.ServicePrincipal,
         roleDefinitionId: roleDefinitionId(ROLE_ACR_PULL),
@@ -477,7 +497,11 @@ export const run = () => {
     PUSHER_KEY: config.get('PUSHER_KEY'),
     CUSTOM_DOMAIN: config.get('customDomain'),
   });
-  const mappingEnv = (accountName: string, containerName: string) =>
+  const mappingEnv = (
+    accountName: string,
+    containerName: string,
+    moduleEnv: Record<string, string>,
+  ) =>
     envLines({
       MAPPING_LLM_PROVIDER: config.get('mappingLlmProvider') || 'AZURE',
       MAPPING_LLM_TEMPERATURE: `${config.getNumber('mappingLlmTemperature') ?? 0}`,
@@ -489,7 +513,7 @@ export const run = () => {
       MAPPING_STORAGE_PROVIDER: 'AZURE_BLOB',
       MAPPING_AZURE_BLOB_ACCOUNT_NAME: accountName,
       MAPPING_AZURE_BLOB_CONTAINER_NAME: containerName,
-      ...mappingModuleEnv,
+      ...moduleEnv,
     });
 
   const secretMap = secretEntries
@@ -525,14 +549,6 @@ export const run = () => {
               ),
             ),
         },
-        {
-          name: 'MAPPING_ENV_B64',
-          value: pulumi
-            .all([storageAccount.name, dataContainer.name])
-            .apply(([accountName, containerName]) =>
-              toBase64(mappingEnv(accountName, containerName)),
-            ),
-        },
         { name: 'DP_IMAGE', value: `${imageRepo}/dp:${dpVersion}` },
         {
           name: 'MAPPING_IMAGE',
@@ -549,6 +565,17 @@ export const run = () => {
               secrets.map((secret) => secret.properties.secretUriWithVersion),
             )
             .apply((uris) => uris.join(' ')),
+        },
+      ],
+      // Protected: may contain MAPPING_MODULE_ENV credentials; not returned by the Azure API.
+      protectedParameters: [
+        {
+          name: 'MAPPING_ENV_B64',
+          value: pulumi
+            .all([storageAccount.name, dataContainer.name, mappingModuleEnv])
+            .apply(([accountName, containerName, moduleEnv]) =>
+              toBase64(mappingEnv(accountName, containerName, moduleEnv)),
+            ),
         },
       ],
       asyncExecution: false,
