@@ -549,7 +549,7 @@ export const run = () => {
               ),
             ),
         },
-        { name: 'DP_IMAGE', value: `${imageRepo}/dp:${dpVersion}` },
+        { name: 'DP_IMAGE', value: `${imageRepo}/pipelines:${dpVersion}` },
         {
           name: 'MAPPING_IMAGE',
           value: `${imageRepo}/mapping:${mappingVersion}`,
@@ -610,6 +610,6 @@ export const run = () => {
     vaultPrivateEndpointIp: privateEndpointIp(vaultPe.pe),
     atlasPrivateEndpointId: atlasPe?.id,
     atlasPrivateEndpointIp: atlasPe ? privateEndpointIp(atlasPe) : undefined,
-    dpImage: `${imageRepo}/dp:${dpVersion}`,
+    dpImage: `${imageRepo}/pipelines:${dpVersion}`,
   };
 };

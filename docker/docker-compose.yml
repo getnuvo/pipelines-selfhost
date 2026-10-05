@@ -7,7 +7,7 @@
 name: ingestro-dp
 
 x-dp: &dp
-  image: ${DP_IMAGE:-ingestro/dp:latest}
+  image: ${DP_IMAGE:-ingestro/pipelines:latest}
   restart: unless-stopped
   env_file: dp.env
   environment:
