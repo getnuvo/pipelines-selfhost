@@ -1,0 +1,21 @@
+src/azure-docker.ts
+  s_f7a05368379076::t_8d99f1c88f5725 601-602
+docs/azure-docker/guide.md
+  s_f7a05368379076::t_8d99f1c88f5725 84-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "1b6e010b9f49e561f943892a8f9d6644d38ce704",
+  "prompts": {},
+  "sessions": {
+    "s_f7a05368379076": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "697e6c6d-5a2c-42fc-b91d-5490517a0aba",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}
