@@ -598,7 +598,8 @@ export const run = () => {
   );
 
   return {
-    endpoint: pulumi.interpolate`http://${vmPrivateIp}:${DP_API_PORT}/dp`,
+    // Host only: the embeddable SDKs append /dp/api/v1 to baseUrl themselves.
+    endpoint: pulumi.interpolate`http://${vmPrivateIp}:${DP_API_PORT}`,
     vmPrivateIp,
     dpApiPort: DP_API_PORT,
     healthProbePath: '/dp/api/v1/management/health',

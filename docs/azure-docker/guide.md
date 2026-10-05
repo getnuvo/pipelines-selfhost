@@ -81,7 +81,8 @@ After the first `pulumi up`:
 2. **App Gateway:**
    - Backend pool `azureDocker.vmPrivateIp`, port `8080`, HTTP.
    - Health probe `GET /dp/api/v1/management/health` (expects 200).
-3. **Embeddables:** set `baseUrl` to `https://<your-app-gateway-host>/dp`.
+3. **Embeddables:** set `baseUrl` to the App Gateway host only, e.g. `https://ingestro.company.local`. Don't add `/dp`: the SDK appends `/dp/api/v1` itself, and `.../dp` ends in 404s on `/dp/dp/...`.
+4. **Access tokens:** your backend requests them from `https://<your-app-gateway-host>/dp/api/v1/access/token` with the license key of that environment (dev key for the dev stack, live key for prod). Self-host forwards the request to Ingestro Cloud.
 
 Repeat with a `<customer>-prod` stack and the prod license key.
 
