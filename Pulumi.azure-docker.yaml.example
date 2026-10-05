@@ -44,6 +44,10 @@ config:
   pipeline-self-host:privateDnsZoneIds:
     blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
     vault: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net
+  # Link the zones above to this spoke VNet (when no hub DNS proxy resolves them for the spoke)
+  pipeline-self-host:linkPrivateDnsZonesToSpoke: false
+  # Change to force the deploy script to re-run (e.g. after peering the spoke)
+  # pipeline-self-host:deployNonce: '1'
 
   # MongoDB Atlas Private Link (Azure side); register the output endpoint in Atlas
   pipeline-self-host:ATLAS_PRIVATE_LINK_SERVICE_ID: /subscriptions/<atlas-sub>/resourceGroups/<atlas-rg>/providers/Microsoft.Network/privateLinkServices/<pls>

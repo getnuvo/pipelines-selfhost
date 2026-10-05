@@ -14,20 +14,11 @@
 #   REGISTRY_AUTH       "acr" (managed identity) or "password" (REGISTRY_USERNAME + registry-password secret)
 #   REGISTRY_USERNAME
 #   SECRET_VERSIONS     versioned secret ids; only here so a changed secret re-runs this script
+#   DEPLOY_NONCE        optional; change it (config deployNonce) to force a re-run
 set -euo pipefail
 
 DIR=/opt/ingestro
 IMDS=http://169.254.169.254/metadata/identity/oauth2/token
-
-cloud-init status --wait >/dev/null || true
-command -v docker >/dev/null || {
-  echo "docker is not installed (cloud-init failed?)" >&2
-  exit 1
-}
-mountpoint -q /var/lib/docker || {
-  echo "data disk is not mounted at /var/lib/docker (cloud-init disk setup failed?)" >&2
-  exit 1
-}
 
 # retry <attempts> <delay-seconds> <command...>
 retry() {
@@ -39,6 +30,27 @@ retry() {
     sleep "$delay"
   done
   return 1
+}
+
+cloud-init status --wait >/dev/null || true
+mountpoint -q /var/lib/docker || {
+  echo "data disk is not mounted at /var/lib/docker (cloud-init disk setup failed?)" >&2
+  exit 1
+}
+
+# cloud-init installs these on first boot, but only if the VM already had egress then
+# (spoke peering / firewall rules may come later). Install them here when missing.
+ensure_packages() {
+  if command -v docker >/dev/null && docker compose version >/dev/null 2>&1 && command -v jq >/dev/null; then
+    return 0
+  fi
+  apt-get update -q &&
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q docker.io docker-compose-v2 jq curl &&
+    systemctl enable --now docker
+}
+retry 10 30 ensure_packages || {
+  echo "could not install docker/jq: no egress to the Ubuntu archive yet? (check spoke peering, UDR and firewall rules)" >&2
+  exit 1
 }
 
 imds_token() {

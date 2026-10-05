@@ -32,6 +32,7 @@ Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure 
 
 1. **First boot (cloud-init).** Formats the data disk and installs `docker.io`, `docker-compose-v2` and `jq` from the Ubuntu archive.
 2. **Every `pulumi up` that changes something (Run Command `ingestro-deploy`).** The script:
+   - installs Docker, compose and `jq` itself if cloud-init couldn't, e.g. because the VM had no egress yet on first boot (retries for about 5 minutes)
    - writes `/opt/ingestro/docker-compose.yml`
    - reads secrets from Key Vault with the VM identity into `dp.env` and `mapping.env` (mode `0600`)
    - logs in to the registry
@@ -43,14 +44,20 @@ Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure 
 3. **Upgrade.** Change `version` (and/or `mappingVersion`), then run `pulumi up`. The VM is not recreated.
 4. **Rollback.** Set the previous `version`, then run `pulumi up`.
 
-When you change a secret value through Pulumi config, the script runs again. If you change a secret directly in Key Vault, re-run it yourself with `pulumi up --replace <run-command-urn>`.
+When you change a secret value through Pulumi config, the script runs again. To re-run it without other changes (a secret changed directly in Key Vault, or a deploy that failed because egress wasn't ready yet), set a new `deployNonce` and run `pulumi up`:
+
+```bash
+pulumi config set deployNonce "$(date +%s)" && pulumi up
+```
+
+**Order on a new spoke:** the VM boots as soon as it's created, but the spoke only has egress (through the hub firewall) once you peer it. If the first `pulumi up` fails because packages or images can't be downloaded, peer the spoke, then re-run with a new `deployNonce`.
 
 ## Prerequisites
 
 ### On your side (hub)
 
 - Azure Firewall with a private IP (the UDR next hop), and DNS proxy if you use it.
-- Private DNS zones `privatelink.blob.core.windows.net` and `privatelink.vaultcore.azure.net`, linked to the spoke (or resolvable through your DNS proxy).
+- Private DNS zones `privatelink.blob.core.windows.net` and `privatelink.vaultcore.azure.net`, resolvable from the spoke: either through your DNS proxy (`dnsServers`), or set `linkPrivateDnsZonesToSpoke: true` and the stack links both zones to the spoke VNet (the deployer needs write access to the zones, also across subscriptions).
 - VNet peering between hub and spoke. This stack does not create peering.
 - An App Gateway listener + certificate for your hostname, e.g. `ingestro.company.local`.
 - A MongoDB Atlas cluster (MongoDB ≥ 5.0) with Azure Private Link enabled.

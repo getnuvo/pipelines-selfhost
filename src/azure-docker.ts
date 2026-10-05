@@ -9,7 +9,9 @@ import * as pulumi from '@pulumi/pulumi';
 import * as authorization from '@pulumi/azure-native/authorization';
 import * as compute from '@pulumi/azure-native/compute';
 import * as keyvault from '@pulumi/azure-native/keyvault';
+import { Provider as AzureNativeProvider } from '@pulumi/azure-native/provider';
 import * as network from '@pulumi/azure-native/network';
+import * as privatedns from '@pulumi/azure-native/privatedns';
 import * as resources from '@pulumi/azure-native/resources';
 import * as storage from '@pulumi/azure-native/storage';
 import * as random from '@pulumi/random';
@@ -90,6 +92,10 @@ export const run = () => {
   if (!privateDnsZoneIds.blob || !privateDnsZoneIds.vault) {
     throw new Error('privateDnsZoneIds must contain "blob" and "vault".');
   }
+  // Link the zones to the spoke when there is no hub DNS proxy resolving them for us.
+  const linkPrivateDnsZonesToSpoke =
+    config.getBoolean('linkPrivateDnsZonesToSpoke') ?? false;
+  const deployNonce = config.get('deployNonce') || '';
 
   const licenseKey = config.requireSecret('INGESTRO_LICENSE_KEY');
   const mongoConnectionString = config.requireSecret('MONGO_CONNECTION_STRING');
@@ -127,6 +133,37 @@ export const run = () => {
     addressSpace: { addressPrefixes: [spokeAddressSpace] },
     ...(dnsServers ? { dhcpOptions: { dnsServers } } : {}),
   });
+
+  // Zones usually live in the hub (other resource group, maybe another subscription).
+  const zoneLinks = linkPrivateDnsZonesToSpoke
+    ? Object.entries(privateDnsZoneIds).map(([zone, zoneId]) => {
+        const match =
+          /^\/subscriptions\/([^/]+)\/resourceGroups\/([^/]+)\/providers\/Microsoft\.Network\/privateDnsZones\/([^/]+)$/i.exec(
+            zoneId,
+          );
+        if (!match) {
+          throw new Error(
+            `privateDnsZoneIds.${zone} is not a Private DNS zone ID`,
+          );
+        }
+        const [, subscriptionId, zoneResourceGroup, zoneName] = match;
+        const provider = new AzureNativeProvider(name(`${zone}-dns-provider`), {
+          subscriptionId,
+        });
+
+        return new privatedns.VirtualNetworkLink(
+          name(`${zone}-dns-link`),
+          {
+            resourceGroupName: zoneResourceGroup,
+            privateZoneName: zoneName,
+            location: 'global',
+            virtualNetwork: { id: vnet.id },
+            registrationEnabled: false,
+          },
+          { provider },
+        );
+      })
+    : [];
 
   // All egress goes through the customer's Azure Firewall.
   const routeTable = new network.RouteTable(name('rt'), {
@@ -558,6 +595,7 @@ export const run = () => {
         { name: 'REGISTRY_SERVER', value: registryServer },
         { name: 'REGISTRY_AUTH', value: acrLoginServer ? 'acr' : 'password' },
         { name: 'REGISTRY_USERNAME', value: 'getnuvo' },
+        { name: 'DEPLOY_NONCE', value: deployNonce },
         {
           name: 'SECRET_VERSIONS',
           value: pulumi
@@ -587,6 +625,7 @@ export const run = () => {
         kvRole,
         vaultPe.dns,
         blobPe.dns,
+        ...zoneLinks,
         ...secrets,
         ...(acrRole ? [acrRole] : []),
       ],
