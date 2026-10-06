@@ -1,4 +1,4 @@
-# provider: azure-docker — Ingestro DP on an Azure VM with docker compose, private network only.
+# provider: azure-docker — Ingestro DP on Azure, private network only.
 # One stack per environment: copy to Pulumi.<customer>-dev.yaml / Pulumi.<customer>-prod.yaml.
 # Set secrets with `pulumi config set --secret <key> <value>`, never in plain text here.
 # See docs/azure-docker/guide.md.
@@ -8,8 +8,10 @@ config:
   pipeline-self-host:prefix: ingestro
   pipeline-self-host:environment: dev # dev | prod
   pipeline-self-host:location: germanywestcentral
+  # functionapp (default): Function App (custom container) + mapping Web App | vm: docker compose on a VM
+  pipeline-self-host:computeMode: functionapp
 
-  # Image tags (ingestro/pipelines:<version>, ingestro/mapping:<mappingVersion>)
+  # Image tags (ingestro/pipelines:<version>[-functions], ingestro/mapping:<mappingVersion>)
   pipeline-self-host:version: '1.0.0'
   pipeline-self-host:mappingVersion: '<mapping-tag>' # pin a concrete tag; `latest` moves and breaks rollback
   # Optional: pull mirrored images from your ACR (managed identity) instead of Docker Hub
@@ -24,29 +26,44 @@ config:
   # pipeline-self-host:PUSHER_SECRET                  # optional
   # pipeline-self-host:BREVO_API_KEY                  # optional
 
-  # VM
-  pipeline-self-host:vmSize: Standard_D4s_v5
-  pipeline-self-host:dataDiskSizeGb: 128
-  pipeline-self-host:adminUsername: ingestro
-  pipeline-self-host:adminSshPublicKey: 'ssh-ed25519 AAAA... ops@company'
+  # computeMode functionapp
+  pipeline-self-host:functionPlanSku: EP1
+  pipeline-self-host:functionMaxInstances: 3
+  pipeline-self-host:mappingPlanSku: P1v3
+  # computeMode vm
+  # pipeline-self-host:vmSize: Standard_D4s_v5
+  # pipeline-self-host:dataDiskSizeGb: 128
+  # pipeline-self-host:adminUsername: ingestro
+  # pipeline-self-host:adminSshPublicKey: 'ssh-ed25519 AAAA... ops@company'
 
   # Spoke network (must not overlap the hub / AVD / other spokes)
   pipeline-self-host:spokeAddressSpace: 10.20.0.0/16
-  pipeline-self-host:vmSubnetPrefix: 10.20.1.0/24
+  pipeline-self-host:appSubnetPrefix: 10.20.1.0/24 # functionapp: VNet integration subnet
+  # pipeline-self-host:vmSubnetPrefix: 10.20.1.0/24 # vm
   pipeline-self-host:peSubnetPrefix: 10.20.2.0/24
 
   # Hub inputs (customer-owned)
   pipeline-self-host:firewallPrivateIp: 10.0.0.4 # UDR next hop for all egress
   pipeline-self-host:appGatewaySubnetCidr: 10.0.1.0/24 # only source allowed to reach the DP API
-  pipeline-self-host:adminSourceCidr: 10.0.2.0/24 # Bastion / admin subnet allowed to SSH
+  # pipeline-self-host:adminSourceCidr: 10.0.2.0/24 # vm: Bastion / admin subnet allowed to SSH
   pipeline-self-host:dnsServers:
     - 10.0.0.4 # Azure Firewall DNS proxy (omit to use Azure DNS)
   pipeline-self-host:privateDnsZoneIds:
     blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
     vault: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net
+    # functionapp only:
+    file: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net
+    queue: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net
+    table: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net
+    sites: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net
   # Link the zones above to this spoke VNet (when no hub DNS proxy resolves them for the spoke)
   pipeline-self-host:linkPrivateDnsZonesToSpoke: false
-  # Change to force the deploy script to re-run (e.g. after peering the spoke)
+  # Serve browser SAS URLs through an App Gateway path rule /blob/* (see the guide)
+  # pipeline-self-host:blobPublicBaseUrl: https://ingestro.company.local/blob
+  # Without it: browser subnets allowed to reach the Blob Private Endpoint (functionapp NSG)
+  # pipeline-self-host:blobClientCidrs:
+  #   - 10.10.0.0/16
+  # vm: change to force the deploy script to re-run (e.g. after peering the spoke)
   # pipeline-self-host:deployNonce: '1'
 
   # MongoDB Atlas Private Link (Azure side); register the output endpoint in Atlas
