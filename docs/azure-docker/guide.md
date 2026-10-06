@@ -62,6 +62,17 @@ Subnets: `<prefix>-<environment>-app-subnet` and `<prefix>-<environment>-pe-subn
 - A MongoDB Atlas cluster per environment, managed by you (see [MongoDB Atlas](#mongodb-atlas)).
 - A DP license key per environment (dev key for Dev, live key for Prod).
 
+### Subscription quota
+
+App Service quota is per SKU and region, and new or sponsored subscriptions often start at 0. Check **Quotas → App Service** for the stack's region and request at least:
+
+| Quota      | Minimum                            |
+| ---------- | ---------------------------------- |
+| `EP1 VMs`  | `functionMaxInstances` (default 3) |
+| `P1v3 VMs` | 1                                  |
+
+Use the SKU you set in `functionPlanSku` / `mappingPlanSku` if you changed them. Without quota, `pulumi up` fails on the App Service plans with `Operation cannot be completed without additional quota`.
+
 ### Deployer machine
 
 - Pulumi CLI, Node.js 18+, Azure CLI (`az login`).
@@ -172,3 +183,18 @@ In the minimal setup (ACR and Azure OpenAI through Private Endpoints, no Pusher 
 
 - **Logs:** Log Analytics workspace (`logAnalyticsWorkspaceId` output), tables `FunctionAppLogs` and `AppServiceConsoleLogs`.
 - **Scaling:** `functionPlanSku`, `functionMaxInstances` and `mappingPlanSku`.
+
+## Troubleshooting
+
+Kudu and Log stream are not reachable with public access disabled. Read the container start log through ARM instead:
+
+```bash
+az rest --method post --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<resourceGroupName>/providers/Microsoft.Web/sites/<functionAppName>/containerlogs?api-version=2023-12-01"
+```
+
+| Symptom                                                                  | Cause and fix                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App returns 503; container log shows `ImagePullFailure` after ~3 minutes | The spoke cannot reach the registry. Allow the Docker Hub FQDNs (see [Egress allow-list](#firewall-rules)) on the firewall, check the UDR next hop and that the firewall accepts traffic from the spoke, then `az functionapp restart`. |
+| `ImagePullFailure` right away (unauthorized)                             | Registry credentials. Check that `DOCKER_REGISTRY_SERVER_PASSWORD` shows **Resolved** under the app's Key Vault references, and that the license key is valid for the environment.                                                      |
+| Browser shows a CORS error on API calls                                  | Usually the browser reached the public endpoint (403 without CORS headers) instead of the App Gateway / Private Endpoint. The API itself allows any origin.                                                                             |
+| CORS error on file uploads/downloads                                     | Add the app's origin to `allowedOrigins` (Blob CORS). The Ingestro dashboards are allowed by default.                                                                                                                                   |

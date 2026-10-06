@@ -23,6 +23,12 @@ const ROLE_KEY_VAULT_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
 const ROLE_ACR_PULL = '7f951dff-4bc7-4b4a-8ab8-1bf7a36cdeb6';
 const HEALTH_PROBE_PATH = '/dp/api/v1/management/health';
 const HYPERFORMULA_MOUNT_PATH = '/mnt/hyperformula-column';
+// Ingestro dashboards that use this backend. Blob CORS has no subdomain wildcards, so they are listed.
+const INGESTRO_ORIGINS = [
+  'https://dashboard.ingestro.com',
+  'https://dashboard-staging.ingestro.com',
+  'https://dashboard-develop.ingestro.com',
+];
 
 // Private DNS zones (keys of the privateDnsZoneIds config). file/queue/table: Function App
 // storage (AzureWebJobsStorage + HyperFormula share); sites: privatelink.azurewebsites.net.
@@ -95,7 +101,12 @@ export const run = () => {
   const atlasPrivateLinkServiceId = config.get('ATLAS_PRIVATE_LINK_SERVICE_ID');
   const dbName = config.get('DB_NAME') || 'ingestro';
   const logDbName = config.get('LOG_DB_NAME') || 'ingestro_logging';
-  const allowedOrigins = config.requireObject<string[]>('allowedOrigins');
+  const allowedOrigins = [
+    ...new Set([
+      ...INGESTRO_ORIGINS,
+      ...(config.getObject<string[]>('allowedOrigins') ?? []),
+    ]),
+  ];
   // Browser SAS URLs through a proxy origin (App Gateway path rule), e.g. https://ingestro.company.local/blob
   const blobPublicBaseUrl = config.get('blobPublicBaseUrl');
 

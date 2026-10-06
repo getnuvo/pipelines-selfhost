@@ -59,7 +59,8 @@ config:
   pipeline-self-host:DB_NAME: ingestro
   pipeline-self-host:LOG_DB_NAME: ingestro_logging
 
-  # Origins of the app embedding Ingestro (Blob CORS for SAS uploads/downloads)
+  # Origins of the app embedding Ingestro (Blob CORS for SAS uploads/downloads).
+  # The Ingestro dashboards (dashboard[-staging|-develop].ingestro.com) are always allowed.
   pipeline-self-host:allowedOrigins:
     - https://ingestro.company.local
 
