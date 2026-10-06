@@ -1,18 +1,11 @@
-// Ingestro DP self-hosted on Azure, private network only.
-// The spoke (VNet, compute, Storage, Key Vault, Private Endpoints) is created here; the hub
+// Ingestro DP self-hosted on Azure, private network only: DP on a Function App (Linux custom
+// container) and the mapping module on a Web App, both reachable only through Private Endpoints.
+// The spoke (VNet, apps, Storage, Key Vault, Private Endpoints) is created here; the hub
 // (Azure Firewall, App Gateway, Private DNS zones, peering) belongs to the customer and is
 // passed in as config.
-//
-// computeMode:
-//   functionapp (default)  DP on a Function App (Linux custom container) + the mapping module on a
-//                          Web App, both reachable only through Private Endpoints
-//   vm                     DP + mapping with docker compose on one Linux VM
 
-import * as fs from 'fs';
-import * as path from 'path';
 import * as pulumi from '@pulumi/pulumi';
 import * as authorization from '@pulumi/azure-native/authorization';
-import * as compute from '@pulumi/azure-native/compute';
 import * as keyvault from '@pulumi/azure-native/keyvault';
 import { Provider as AzureNativeProvider } from '@pulumi/azure-native/provider';
 import * as monitor from '@pulumi/azure-native/monitor';
@@ -28,33 +21,12 @@ import { fetchFunctionList } from './utils/ingestro';
 
 const ROLE_KEY_VAULT_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
 const ROLE_ACR_PULL = '7f951dff-4bc7-4b4a-8ab8-1bf7a36cdeb6';
-const DP_API_PORT = 8080;
 const HEALTH_PROBE_PATH = '/dp/api/v1/management/health';
 const HYPERFORMULA_MOUNT_PATH = '/mnt/hyperformula-column';
 
-type ComputeMode = 'functionapp' | 'vm';
-
-// Private DNS zones each mode needs (keys of the privateDnsZoneIds config).
-const REQUIRED_ZONES: Record<ComputeMode, string[]> = {
-  vm: ['blob', 'vault'],
-  // file/queue/table: Function App storage (AzureWebJobsStorage + HyperFormula share)
-  // sites: privatelink.azurewebsites.net for the Function App / Web App endpoints
-  functionapp: ['blob', 'file', 'queue', 'table', 'vault', 'sites'],
-};
-
-const readFile = (relativePath: string) =>
-  fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
-
-const toBase64 = (value: string) => Buffer.from(value).toString('base64');
-
-const envLines = (entries: Record<string, string | undefined>) =>
-  Object.entries(entries)
-    .filter(([, value]) => value !== undefined && value !== '')
-    // Compose interpolates `$` in env files; `$$` is a literal `$`.
-    .map(
-      ([name, value]) => `${name}=${(value as string).replace(/\$/g, '$$$$')}`,
-    )
-    .join('\n') + '\n';
+// Private DNS zones (keys of the privateDnsZoneIds config). file/queue/table: Function App
+// storage (AzureWebJobsStorage + HyperFormula share); sites: privatelink.azurewebsites.net.
+const REQUIRED_ZONES = ['blob', 'file', 'queue', 'table', 'vault', 'sites'];
 
 // Key Vault secret names allow only [0-9a-zA-Z-].
 const secretName = (envName: string) =>
@@ -76,12 +48,6 @@ export const run = () => {
   const location = config.get('location') || 'germanywestcentral';
   const name = (suffix: string) => `${prefix}-${environment}-${suffix}`;
 
-  const computeMode = (config.get('computeMode') ||
-    'functionapp') as ComputeMode;
-  if (!(computeMode in REQUIRED_ZONES)) {
-    throw new Error('computeMode must be "functionapp" or "vm".');
-  }
-
   // Azure appends an 8 character suffix; storage accounts and vaults allow 24 characters.
   const storageAccountName = `${prefix}${environment}sa`
     .toLowerCase()
@@ -100,13 +66,9 @@ export const run = () => {
   if (!!acrLoginServer !== !!acrId) {
     throw new Error('Set both acrLoginServer and acrId, or neither.');
   }
-  const registryServer = acrLoginServer || 'registry-1.docker.io';
   const imageRepo = acrLoginServer ? `${acrLoginServer}/ingestro` : 'ingestro';
   // The Function App runs the Azure Functions host build of the same release.
-  const dpImage =
-    computeMode === 'functionapp'
-      ? `${imageRepo}/pipelines:${dpVersion}-functions`
-      : `${imageRepo}/pipelines:${dpVersion}`;
+  const dpImage = `${imageRepo}/pipelines:${dpVersion}-functions`;
   const mappingImage = `${imageRepo}/mapping:${mappingVersion}`;
 
   const spokeAddressSpace = config.require('spokeAddressSpace');
@@ -116,12 +78,12 @@ export const run = () => {
   const dnsServers = config.getObject<string[]>('dnsServers');
   const privateDnsZoneIds =
     config.requireObject<Record<string, string>>('privateDnsZoneIds');
-  const missingZones = REQUIRED_ZONES[computeMode].filter(
+  const missingZones = REQUIRED_ZONES.filter(
     (zone) => !privateDnsZoneIds[zone],
   );
   if (missingZones.length > 0) {
     throw new Error(
-      `privateDnsZoneIds is missing ${missingZones.join(', ')} (computeMode ${computeMode} needs ${REQUIRED_ZONES[computeMode].join(', ')}).`,
+      `privateDnsZoneIds is missing ${missingZones.join(', ')} (needs ${REQUIRED_ZONES.join(', ')}).`,
     );
   }
   // Link the zones to the spoke when there is no hub DNS proxy resolving them for us.
@@ -224,105 +186,62 @@ export const run = () => {
     destinationPortRange: '*',
   };
 
-  // Compute subnet: the VM itself, or the Function App / Web App VNet integration.
-  const computeSubnet =
-    computeMode === 'vm'
-      ? new network.Subnet(name('vm-subnet'), {
-          resourceGroupName,
-          virtualNetworkName: vnet.name,
-          addressPrefix: config.require('vmSubnetPrefix'),
-          networkSecurityGroup: {
-            id: new network.NetworkSecurityGroup(name('vm-nsg'), {
-              resourceGroupName,
-              location,
-              securityRules: [
-                {
-                  name: 'allow-appgw-dp-api',
-                  priority: 100,
-                  direction: 'Inbound',
-                  access: 'Allow',
-                  protocol: 'Tcp',
-                  sourceAddressPrefix: appGatewaySubnetCidr,
-                  sourcePortRange: '*',
-                  destinationAddressPrefix: '*',
-                  destinationPortRange: `${DP_API_PORT}`,
-                },
-                {
-                  name: 'allow-admin-ssh',
-                  priority: 110,
-                  direction: 'Inbound',
-                  access: 'Allow',
-                  protocol: 'Tcp',
-                  sourceAddressPrefix: config.require('adminSourceCidr'),
-                  sourcePortRange: '*',
-                  destinationAddressPrefix: '*',
-                  destinationPortRange: '22',
-                },
-                denyOtherVnetInbound,
-              ],
-            }).id,
-          },
-          routeTable: { id: routeTable.id },
-          defaultOutboundAccess: false,
-        })
-      : new network.Subnet(name('app-subnet'), {
-          resourceGroupName,
-          virtualNetworkName: vnet.name,
-          addressPrefix: config.require('appSubnetPrefix'),
-          delegations: [
-            { name: 'app-service', serviceName: 'Microsoft.Web/serverFarms' },
-          ],
-          routeTable: { id: routeTable.id },
-          defaultOutboundAccess: false,
-        });
+  // VNet integration of the Function App and the mapping Web App (outbound through the firewall).
+  const appSubnet = new network.Subnet(name('app-subnet'), {
+    resourceGroupName,
+    virtualNetworkName: vnet.name,
+    addressPrefix: config.require('appSubnetPrefix'),
+    delegations: [
+      { name: 'app-service', serviceName: 'Microsoft.Web/serverFarms' },
+    ],
+    routeTable: { id: routeTable.id },
+    defaultOutboundAccess: false,
+  });
 
-  // Function App mode: the App Gateway reaches the Function App through its Private Endpoint,
-  // so the endpoint subnet gets the inbound rules.
+  // The App Gateway reaches the Function App through its Private Endpoint, so the endpoint
+  // subnet gets the inbound rules.
   const blobClientCidrs = config.getObject<string[]>('blobClientCidrs') || [];
-  const peNsg =
-    computeMode === 'functionapp'
-      ? new network.NetworkSecurityGroup(name('pe-nsg'), {
-          resourceGroupName,
-          location,
-          securityRules: [
-            {
-              name: 'allow-spoke',
-              priority: 100,
-              direction: 'Inbound',
-              access: 'Allow',
-              protocol: '*',
-              sourceAddressPrefix: spokeAddressSpace,
-              sourcePortRange: '*',
-              destinationAddressPrefix: '*',
-              destinationPortRange: '*',
-            },
-            {
-              name: 'allow-appgw-https',
-              priority: 110,
-              direction: 'Inbound',
-              access: 'Allow',
-              protocol: 'Tcp',
-              sourceAddressPrefix: appGatewaySubnetCidr,
-              sourcePortRange: '*',
-              destinationAddressPrefix: '*',
-              destinationPortRange: '443',
-            },
-            // Browsers using direct Blob SAS URLs (no blobPublicBaseUrl proxy)
-            ...blobClientCidrs.map((cidr, index) => ({
-              name: `allow-blob-client-${index}`,
-              priority: 120 + index,
-              direction: 'Inbound',
-              access: 'Allow',
-              protocol: 'Tcp',
-              sourceAddressPrefix: cidr,
-              sourcePortRange: '*',
-              destinationAddressPrefix: '*',
-              destinationPortRange: '443',
-            })),
-            denyOtherVnetInbound,
-          ],
-        })
-      : undefined;
+  const peNsg = new network.NetworkSecurityGroup(name('pe-nsg'), {
+    resourceGroupName,
+    location,
+    securityRules: [
+      {
+        name: 'allow-spoke',
+        priority: 100,
+        direction: 'Inbound',
+        access: 'Allow',
+        protocol: '*',
+        sourceAddressPrefix: spokeAddressSpace,
+        sourcePortRange: '*',
+        destinationAddressPrefix: '*',
+        destinationPortRange: '*',
+      },
+      {
+        name: 'allow-appgw-https',
+        priority: 110,
+        direction: 'Inbound',
+        access: 'Allow',
+        protocol: 'Tcp',
+        sourceAddressPrefix: appGatewaySubnetCidr,
+        sourcePortRange: '*',
+        destinationAddressPrefix: '*',
+        destinationPortRange: '443',
+      },
+      // Browsers using direct Blob SAS URLs (no blobPublicBaseUrl proxy)
+      ...blobClientCidrs.map((cidr, index) => ({
+        name: `allow-blob-client-${index}`,
+        priority: 120 + index,
+        direction: 'Inbound',
+        access: 'Allow',
+        protocol: 'Tcp',
+        sourceAddressPrefix: cidr,
+        sourcePortRange: '*',
+        destinationAddressPrefix: '*',
+        destinationPortRange: '443',
+      })),
+      denyOtherVnetInbound,
+    ],
+  });
 
   const peSubnet = new network.Subnet(
     name('pe-subnet'),
@@ -331,15 +250,11 @@ export const run = () => {
       virtualNetworkName: vnet.name,
       addressPrefix: peSubnetPrefix,
       defaultOutboundAccess: false,
-      ...(peNsg
-        ? {
-            networkSecurityGroup: { id: peNsg.id },
-            privateEndpointNetworkPolicies: 'Enabled',
-          }
-        : {}),
+      networkSecurityGroup: { id: peNsg.id },
+      privateEndpointNetworkPolicies: 'Enabled',
     },
     // Subnets of one VNet cannot be updated in parallel.
-    { dependsOn: [computeSubnet] },
+    { dependsOn: [appSubnet] },
   );
 
   const privateEndpoint = (
@@ -423,11 +338,7 @@ export const run = () => {
     storageAccount.name,
   );
 
-  const storagePes = (
-    computeMode === 'functionapp'
-      ? ['blob', 'file', 'queue', 'table']
-      : ['blob']
-  ).map((service) =>
+  const storagePes = ['blob', 'file', 'queue', 'table'].map((service) =>
     privateEndpoint(service, storageAccount.id, service, service),
   );
   const blobPe = storagePes[0];
@@ -601,7 +512,6 @@ export const run = () => {
     vaultPrivateEndpointIp: privateEndpointIp(vaultPe.pe),
     atlasPrivateEndpointId: atlasPe?.id,
     atlasPrivateEndpointIp: atlasPe ? privateEndpointIp(atlasPe) : undefined,
-    computeMode,
     dpImage,
     mappingImage,
   };
@@ -612,397 +522,222 @@ export const run = () => {
     ...secrets,
   ];
 
-  if (computeMode === 'functionapp') {
-    // ---------------- FUNCTION APP + MAPPING WEB APP ----------------
-    const fileShare = new storage.FileShare(name('hyperformula'), {
-      resourceGroupName,
-      accountName: storageAccount.name,
-      shareName: 'hyperformula',
-    });
-
-    const functionPlan = new web.AppServicePlan(name('func-plan'), {
-      resourceGroupName,
-      location,
-      kind: 'functionapp,linux',
-      reserved: true,
-      sku: {
-        name: config.get('functionPlanSku') || 'EP1',
-        tier: 'ElasticPremium',
-      },
-      maximumElasticWorkerCount: config.getNumber('functionMaxInstances') || 3,
-    });
-    const mappingPlan = new web.AppServicePlan(name('mapping-plan'), {
-      resourceGroupName,
-      location,
-      kind: 'app,linux',
-      reserved: true,
-      sku: { name: config.get('mappingPlanSku') || 'P1v3' },
-    });
-
-    // Private apps: no public access, outbound through the spoke (UDR to the firewall),
-    // images pulled over the VNet, Key Vault references resolved with the app identity.
-    const privateApp = (
-      appName: string,
-      plan: web.AppServicePlan,
-      kind: string,
-      image: string,
-      siteConfig: pulumi.Input<object>,
-    ) =>
-      new web.WebApp(appName, {
-        resourceGroupName,
-        location,
-        serverFarmId: plan.id,
-        kind,
-        reserved: true,
-        identity: { type: 'SystemAssigned' },
-        keyVaultReferenceIdentity: 'SystemAssigned',
-        httpsOnly: true,
-        publicNetworkAccess: 'Disabled',
-        virtualNetworkSubnetId: computeSubnet.id,
-        vnetRouteAllEnabled: true,
-        vnetImagePullEnabled: true,
-        vnetContentShareEnabled: true,
-        siteConfig: {
-          linuxFxVersion: `DOCKER|${image}`,
-          acrUseManagedIdentityCreds: !!acrLoginServer,
-          http20Enabled: true,
-          ftpsState: 'Disabled',
-          ...siteConfig,
-        },
-      });
-
-    const functionApp = privateApp(
-      name('func'),
-      functionPlan,
-      'functionapp,linux,container',
-      dpImage,
-      { minimumElasticInstanceCount: 1 },
-    );
-    const mappingApp = privateApp(
-      name('mapping'),
-      mappingPlan,
-      'app,linux,container',
-      mappingImage,
-      { alwaysOn: true },
-    );
-
-    const functionPe = privateEndpoint(
-      'func',
-      functionApp.id,
-      'sites',
-      'sites',
-    );
-    const mappingPe = privateEndpoint(
-      'mapping',
-      mappingApp.id,
-      'sites',
-      'sites',
-    );
-
-    const functionPrincipal = principalOf(functionApp.identity, 'Function App');
-    const mappingPrincipal = principalOf(mappingApp.identity, 'Mapping app');
-    const roles = [
-      grant(
-        'func-kv-secrets-user',
-        functionPrincipal,
-        ROLE_KEY_VAULT_SECRETS_USER,
-        vault.id,
-      ),
-      grant(
-        'mapping-kv-secrets-user',
-        mappingPrincipal,
-        ROLE_KEY_VAULT_SECRETS_USER,
-        vault.id,
-      ),
-      ...(acrId
-        ? [
-            grant('func-acr-pull', functionPrincipal, ROLE_ACR_PULL, acrId),
-            grant('mapping-acr-pull', mappingPrincipal, ROLE_ACR_PULL, acrId),
-          ]
-        : []),
-    ];
-
-    const kvRef = (env: string) =>
-      pulumi.interpolate`@Microsoft.KeyVault(VaultName=${vault.name};SecretName=${secretName(env)})`;
-    const secretRefs = (file: 'dp' | 'mapping') =>
-      Object.fromEntries(
-        secretEntries
-          .filter((entry) => entry.file === file)
-          .map((entry) => [entry.env, kvRef(entry.env)]),
-      );
-    const registrySettings: Record<
-      string,
-      pulumi.Input<string>
-    > = acrLoginServer
-      ? { DOCKER_REGISTRY_SERVER_URL: `https://${acrLoginServer}` }
-      : {
-          DOCKER_REGISTRY_SERVER_URL: 'https://index.docker.io',
-          DOCKER_REGISTRY_SERVER_USERNAME: 'getnuvo',
-          DOCKER_REGISTRY_SERVER_PASSWORD: pulumi.interpolate`@Microsoft.KeyVault(VaultName=${vault.name};SecretName=registry-password)`,
-        };
-    const functionUrl = pulumi.interpolate`https://${functionApp.defaultHostName}`;
-    const mappingUrl = pulumi.interpolate`https://${mappingApp.defaultHostName}`;
-
-    // Applied after the role assignments, so Key Vault references resolve on the first start.
-    const settingsDependsOn = [...roles, ...networkReady];
-    new web.WebAppApplicationSettings(
-      name('func-settings'),
-      {
-        name: functionApp.name,
-        resourceGroupName,
-        properties: pulumi
-          .all([storageAccount.name, dataContainer.name])
-          .apply(([accountName, containerName]) =>
-            pulumi.output<Record<string, pulumi.Input<string>>>({
-              ...dpSettings(accountName, containerName),
-              ...secretRefs('dp'),
-              ...registrySettings,
-              AzureWebJobsStorage: kvRef('AZURE_CONNECTION_STRING'),
-              FUNCTIONS_EXTENSION_VERSION: '~4',
-              FUNCTIONS_WORKER_RUNTIME: 'node',
-              WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false',
-              CLOUD_PROVIDER: 'AZURE',
-              AZURE_FUNCTION_BASE_URL: functionUrl,
-              MAPPING_BASE_URL: mappingUrl,
-            }),
-          ),
-      },
-      { dependsOn: settingsDependsOn },
-    );
-    new web.WebAppApplicationSettings(
-      name('mapping-settings'),
-      {
-        name: mappingApp.name,
-        resourceGroupName,
-        properties: pulumi
-          .all([storageAccount.name, dataContainer.name, mappingModuleEnv])
-          .apply(([accountName, containerName, moduleEnv]) =>
-            pulumi.output<Record<string, pulumi.Input<string>>>({
-              ...mappingSettings(accountName, containerName, moduleEnv),
-              ...secretRefs('mapping'),
-              ...registrySettings,
-              WEBSITES_PORT: '8000',
-              MAPPING_PORT: '8000',
-              WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false',
-            }),
-          ),
-      },
-      { dependsOn: settingsDependsOn },
-    );
-
-    // With public access disabled, Log stream / Kudu are not reachable from outside the network:
-    // ship console and function logs to Log Analytics (platform path, no firewall egress).
-    const logs = new operationalinsights.Workspace(name('logs'), {
-      resourceGroupName,
-      location,
-      sku: { name: 'PerGB2018' },
-      retentionInDays: config.getNumber('logRetentionDays') || 30,
-    });
-    [
-      { app: functionApp, suffix: 'func', categories: ['FunctionAppLogs'] },
-      {
-        app: mappingApp,
-        suffix: 'mapping',
-        categories: ['AppServiceConsoleLogs', 'AppServiceHTTPLogs'],
-      },
-    ].forEach(({ app, suffix, categories }) => {
-      new monitor.DiagnosticSetting(name(`${suffix}-diagnostics`), {
-        resourceUri: app.id,
-        name: 'ingestro-logs',
-        workspaceId: logs.id,
-        logs: categories.map((category) => ({ category, enabled: true })),
-      });
-    });
-
-    // Shared HyperFormula working directory (the API reads what the worker functions write).
-    new web.WebAppAzureStorageAccounts(
-      name('func-storage-mounts'),
-      {
-        name: functionApp.name,
-        resourceGroupName,
-        properties: {
-          hyperformula: {
-            type: web.AzureStorageType.AzureFiles,
-            accountName: storageAccount.name,
-            shareName: fileShare.name,
-            accessKey: storageAccountKey,
-            mountPath: HYPERFORMULA_MOUNT_PATH,
-          },
-        },
-      },
-      { dependsOn: networkReady },
-    );
-
-    return {
-      ...commonOutputs,
-      // Host only: the embeddable SDKs append /dp/api/v1 to baseUrl themselves.
-      endpoint: functionUrl,
-      functionAppName: functionApp.name,
-      logAnalyticsWorkspaceId: logs.id,
-      functionAppHostname: functionApp.defaultHostName,
-      functionAppPrivateEndpointIp: privateEndpointIp(functionPe.pe),
-      mappingAppHostname: mappingApp.defaultHostName,
-      mappingPrivateEndpointIp: privateEndpointIp(mappingPe.pe),
-    };
-  }
-
-  // ---------------- VM (docker compose) ----------------
-  const vmSize = config.get('vmSize') || 'Standard_D4s_v5';
-  const dataDiskSizeGb = config.getNumber('dataDiskSizeGb') || 128;
-  const adminUsername = config.get('adminUsername') || 'ingestro';
-  const adminSshPublicKey = config.require('adminSshPublicKey');
-  const deployNonce = config.get('deployNonce') || '';
-
-  const nic = new network.NetworkInterface(name('vm-nic'), {
+  // ---------------- FUNCTION APP + MAPPING WEB APP ----------------
+  const fileShare = new storage.FileShare(name('hyperformula'), {
     resourceGroupName,
-    location,
-    ipConfigurations: [
-      {
-        name: 'ipconfig',
-        subnet: { id: computeSubnet.id },
-        privateIPAllocationMethod: 'Dynamic',
-      },
-    ],
+    accountName: storageAccount.name,
+    shareName: 'hyperformula',
   });
 
-  const vm = new compute.VirtualMachine(name('vm'), {
+  const functionPlan = new web.AppServicePlan(name('func-plan'), {
     resourceGroupName,
     location,
-    hardwareProfile: { vmSize },
-    identity: { type: compute.ResourceIdentityType.SystemAssigned },
-    networkProfile: { networkInterfaces: [{ id: nic.id, primary: true }] },
-    osProfile: {
-      computerName: name('vm'),
-      adminUsername,
-      customData: toBase64(readFile('scripts/azure-docker/cloud-init.yaml')),
-      linuxConfiguration: {
-        disablePasswordAuthentication: true,
-        ssh: {
-          publicKeys: [
-            {
-              path: `/home/${adminUsername}/.ssh/authorized_keys`,
-              keyData: adminSshPublicKey,
-            },
-          ],
-        },
-      },
+    kind: 'functionapp,linux',
+    reserved: true,
+    sku: {
+      name: config.get('functionPlanSku') || 'EP1',
+      tier: 'ElasticPremium',
     },
-    storageProfile: {
-      imageReference: {
-        publisher: 'Canonical',
-        offer: 'ubuntu-24_04-lts',
-        sku: 'server',
-        version: 'latest',
-      },
-      osDisk: {
-        createOption: compute.DiskCreateOptionTypes.FromImage,
-        managedDisk: {
-          storageAccountType: compute.StorageAccountTypes.Premium_LRS,
-        },
-        deleteOption: compute.DiskDeleteOptionTypes.Delete,
-      },
-      dataDisks: [
-        {
-          lun: 0,
-          createOption: compute.DiskCreateOptionTypes.Empty,
-          diskSizeGB: dataDiskSizeGb,
-          managedDisk: {
-            storageAccountType: compute.StorageAccountTypes.Premium_LRS,
-          },
-        },
-      ],
-    },
-    diagnosticsProfile: { bootDiagnostics: { enabled: true } },
+    maximumElasticWorkerCount: config.getNumber('functionMaxInstances') || 3,
+  });
+  const mappingPlan = new web.AppServicePlan(name('mapping-plan'), {
+    resourceGroupName,
+    location,
+    kind: 'app,linux',
+    reserved: true,
+    sku: { name: config.get('mappingPlanSku') || 'P1v3' },
   });
 
-  const vmPrincipalId = principalOf(vm.identity, 'VM');
-  const kvRole = grant(
-    'vm-kv-secrets-user',
-    vmPrincipalId,
-    ROLE_KEY_VAULT_SECRETS_USER,
-    vault.id,
-  );
-  const acrRole = acrId
-    ? grant('vm-acr-pull', vmPrincipalId, ROLE_ACR_PULL, acrId)
-    : undefined;
-
-  const secretMap = secretEntries
-    .map((entry) => `${entry.file}:${entry.env}=${secretName(entry.env)}`)
-    .join(' ');
-
-  new compute.VirtualMachineRunCommandByVirtualMachine(
-    name('deploy'),
-    {
+  // Private apps: no public access, outbound through the spoke (UDR to the firewall),
+  // images pulled over the VNet, Key Vault references resolved with the app identity.
+  const privateApp = (
+    appName: string,
+    plan: web.AppServicePlan,
+    kind: string,
+    image: string,
+    siteConfig: pulumi.Input<object>,
+  ) =>
+    new web.WebApp(appName, {
       resourceGroupName,
-      vmName: vm.name,
-      runCommandName: 'ingestro-deploy',
       location,
-      source: { script: readFile('scripts/azure-docker/deploy.sh') },
-      parameters: [
-        { name: 'VAULT_NAME', value: vault.name },
-        { name: 'SECRET_MAP', value: secretMap },
-        {
-          name: 'COMPOSE_B64',
-          value: toBase64(readFile('docker/docker-compose.yml')),
-        },
-        {
-          name: 'DP_ENV_B64',
-          value: pulumi
-            .all([storageAccount.name, dataContainer.name])
-            .apply(([accountName, containerName]) =>
-              toBase64(envLines(dpSettings(accountName, containerName))),
-            ),
-        },
-        { name: 'DP_IMAGE', value: dpImage },
-        { name: 'MAPPING_IMAGE', value: mappingImage },
-        { name: 'DP_API_PORT', value: `${DP_API_PORT}` },
-        { name: 'REGISTRY_SERVER', value: registryServer },
-        { name: 'REGISTRY_AUTH', value: acrLoginServer ? 'acr' : 'password' },
-        { name: 'REGISTRY_USERNAME', value: 'getnuvo' },
-        { name: 'DEPLOY_NONCE', value: deployNonce },
-        {
-          name: 'SECRET_VERSIONS',
-          value: pulumi
-            .all(
-              secrets.map((secret) => secret.properties.secretUriWithVersion),
-            )
-            .apply((uris) => uris.join(' ')),
-        },
-      ],
-      // Protected: may contain MAPPING_MODULE_ENV credentials; not returned by the Azure API.
-      protectedParameters: [
-        {
-          name: 'MAPPING_ENV_B64',
-          value: pulumi
-            .all([storageAccount.name, dataContainer.name, mappingModuleEnv])
-            .apply(([accountName, containerName, moduleEnv]) =>
-              toBase64(
-                envLines(
-                  mappingSettings(accountName, containerName, moduleEnv),
-                ),
-              ),
-            ),
-        },
-      ],
-      asyncExecution: false,
-      timeoutInSeconds: 1800,
-      treatFailureAsDeploymentFailure: true,
-    },
-    {
-      dependsOn: [kvRole, ...networkReady, ...(acrRole ? [acrRole] : [])],
-    },
+      serverFarmId: plan.id,
+      kind,
+      reserved: true,
+      identity: { type: 'SystemAssigned' },
+      keyVaultReferenceIdentity: 'SystemAssigned',
+      httpsOnly: true,
+      publicNetworkAccess: 'Disabled',
+      virtualNetworkSubnetId: appSubnet.id,
+      vnetRouteAllEnabled: true,
+      vnetImagePullEnabled: true,
+      vnetContentShareEnabled: true,
+      siteConfig: {
+        linuxFxVersion: `DOCKER|${image}`,
+        acrUseManagedIdentityCreds: !!acrLoginServer,
+        http20Enabled: true,
+        ftpsState: 'Disabled',
+        ...siteConfig,
+      },
+    });
+
+  const functionApp = privateApp(
+    name('func'),
+    functionPlan,
+    'functionapp,linux,container',
+    dpImage,
+    { minimumElasticInstanceCount: 1 },
+  );
+  const mappingApp = privateApp(
+    name('mapping'),
+    mappingPlan,
+    'app,linux,container',
+    mappingImage,
+    { alwaysOn: true },
   );
 
-  const vmPrivateIp = nic.ipConfigurations.apply(
-    (configs) => configs?.[0]?.privateIPAddress,
+  const functionPe = privateEndpoint('func', functionApp.id, 'sites', 'sites');
+  const mappingPe = privateEndpoint('mapping', mappingApp.id, 'sites', 'sites');
+
+  const functionPrincipal = principalOf(functionApp.identity, 'Function App');
+  const mappingPrincipal = principalOf(mappingApp.identity, 'Mapping app');
+  const roles = [
+    grant(
+      'func-kv-secrets-user',
+      functionPrincipal,
+      ROLE_KEY_VAULT_SECRETS_USER,
+      vault.id,
+    ),
+    grant(
+      'mapping-kv-secrets-user',
+      mappingPrincipal,
+      ROLE_KEY_VAULT_SECRETS_USER,
+      vault.id,
+    ),
+    ...(acrId
+      ? [
+          grant('func-acr-pull', functionPrincipal, ROLE_ACR_PULL, acrId),
+          grant('mapping-acr-pull', mappingPrincipal, ROLE_ACR_PULL, acrId),
+        ]
+      : []),
+  ];
+
+  const kvRef = (env: string) =>
+    pulumi.interpolate`@Microsoft.KeyVault(VaultName=${vault.name};SecretName=${secretName(env)})`;
+  const secretRefs = (file: 'dp' | 'mapping') =>
+    Object.fromEntries(
+      secretEntries
+        .filter((entry) => entry.file === file)
+        .map((entry) => [entry.env, kvRef(entry.env)]),
+    );
+  const registrySettings: Record<string, pulumi.Input<string>> = acrLoginServer
+    ? { DOCKER_REGISTRY_SERVER_URL: `https://${acrLoginServer}` }
+    : {
+        DOCKER_REGISTRY_SERVER_URL: 'https://index.docker.io',
+        DOCKER_REGISTRY_SERVER_USERNAME: 'getnuvo',
+        DOCKER_REGISTRY_SERVER_PASSWORD: pulumi.interpolate`@Microsoft.KeyVault(VaultName=${vault.name};SecretName=registry-password)`,
+      };
+  const functionUrl = pulumi.interpolate`https://${functionApp.defaultHostName}`;
+  const mappingUrl = pulumi.interpolate`https://${mappingApp.defaultHostName}`;
+
+  // Applied after the role assignments, so Key Vault references resolve on the first start.
+  const settingsDependsOn = [...roles, ...networkReady];
+  new web.WebAppApplicationSettings(
+    name('func-settings'),
+    {
+      name: functionApp.name,
+      resourceGroupName,
+      properties: pulumi
+        .all([storageAccount.name, dataContainer.name])
+        .apply(([accountName, containerName]) =>
+          pulumi.output<Record<string, pulumi.Input<string>>>({
+            ...dpSettings(accountName, containerName),
+            ...secretRefs('dp'),
+            ...registrySettings,
+            AzureWebJobsStorage: kvRef('AZURE_CONNECTION_STRING'),
+            FUNCTIONS_EXTENSION_VERSION: '~4',
+            FUNCTIONS_WORKER_RUNTIME: 'node',
+            WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false',
+            CLOUD_PROVIDER: 'AZURE',
+            AZURE_FUNCTION_BASE_URL: functionUrl,
+            MAPPING_BASE_URL: mappingUrl,
+          }),
+        ),
+    },
+    { dependsOn: settingsDependsOn },
+  );
+  new web.WebAppApplicationSettings(
+    name('mapping-settings'),
+    {
+      name: mappingApp.name,
+      resourceGroupName,
+      properties: pulumi
+        .all([storageAccount.name, dataContainer.name, mappingModuleEnv])
+        .apply(([accountName, containerName, moduleEnv]) =>
+          pulumi.output<Record<string, pulumi.Input<string>>>({
+            ...mappingSettings(accountName, containerName, moduleEnv),
+            ...secretRefs('mapping'),
+            ...registrySettings,
+            WEBSITES_PORT: '8000',
+            MAPPING_PORT: '8000',
+            WEBSITES_ENABLE_APP_SERVICE_STORAGE: 'false',
+          }),
+        ),
+    },
+    { dependsOn: settingsDependsOn },
+  );
+
+  // With public access disabled, Log stream / Kudu are not reachable from outside the network:
+  // ship console and function logs to Log Analytics (platform path, no firewall egress).
+  const logs = new operationalinsights.Workspace(name('logs'), {
+    resourceGroupName,
+    location,
+    sku: { name: 'PerGB2018' },
+    retentionInDays: config.getNumber('logRetentionDays') || 30,
+  });
+  [
+    { app: functionApp, suffix: 'func', categories: ['FunctionAppLogs'] },
+    {
+      app: mappingApp,
+      suffix: 'mapping',
+      categories: ['AppServiceConsoleLogs', 'AppServiceHTTPLogs'],
+    },
+  ].forEach(({ app, suffix, categories }) => {
+    new monitor.DiagnosticSetting(name(`${suffix}-diagnostics`), {
+      resourceUri: app.id,
+      name: 'ingestro-logs',
+      workspaceId: logs.id,
+      logs: categories.map((category) => ({ category, enabled: true })),
+    });
+  });
+
+  // Shared HyperFormula working directory (the API reads what the worker functions write).
+  new web.WebAppAzureStorageAccounts(
+    name('func-storage-mounts'),
+    {
+      name: functionApp.name,
+      resourceGroupName,
+      properties: {
+        hyperformula: {
+          type: web.AzureStorageType.AzureFiles,
+          accountName: storageAccount.name,
+          shareName: fileShare.name,
+          accessKey: storageAccountKey,
+          mountPath: HYPERFORMULA_MOUNT_PATH,
+        },
+      },
+    },
+    { dependsOn: networkReady },
   );
 
   return {
     ...commonOutputs,
     // Host only: the embeddable SDKs append /dp/api/v1 to baseUrl themselves.
-    endpoint: pulumi.interpolate`http://${vmPrivateIp}:${DP_API_PORT}`,
-    vmPrivateIp,
-    dpApiPort: DP_API_PORT,
-    vmId: vm.id,
+    endpoint: functionUrl,
+    functionAppName: functionApp.name,
+    logAnalyticsWorkspaceId: logs.id,
+    functionAppHostname: functionApp.defaultHostName,
+    functionAppPrivateEndpointIp: privateEndpointIp(functionPe.pe),
+    mappingAppHostname: mappingApp.defaultHostName,
+    mappingPrivateEndpointIp: privateEndpointIp(mappingPe.pe),
   };
 };
