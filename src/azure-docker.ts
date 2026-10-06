@@ -443,13 +443,19 @@ export const run = () => {
     ] as (Omit<SecretEntry, 'value'> & { value?: pulumi.Input<string> })[]
   ).filter((entry): entry is SecretEntry => entry.value !== undefined);
 
+  // Secrets are written through ARM, but deleted through the vault's data plane, which the
+  // deployer cannot reach (RBAC, public access disabled). They go away with the vault.
   const createSecret = (secret: string, value: pulumi.Input<string>) =>
-    new keyvault.Secret(name(secret), {
-      resourceGroupName,
-      vaultName: vault.name,
-      secretName: secret,
-      properties: { value },
-    });
+    new keyvault.Secret(
+      name(secret),
+      {
+        resourceGroupName,
+        vaultName: vault.name,
+        secretName: secret,
+        properties: { value },
+      },
+      { retainOnDelete: true },
+    );
 
   const secrets = secretEntries.map((entry) =>
     createSecret(secretName(entry.env), entry.value),
