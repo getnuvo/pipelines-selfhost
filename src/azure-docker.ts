@@ -67,8 +67,8 @@ export const run = () => {
     throw new Error('Set both acrLoginServer and acrId, or neither.');
   }
   const imageRepo = acrLoginServer ? `${acrLoginServer}/ingestro` : 'ingestro';
-  // The Function App runs the Azure Functions host build of the same release.
-  const dpImage = `${imageRepo}/pipelines:${dpVersion}-functions`;
+  // ingestro/pipelines:<version> is the Azure Functions host build (compose builds are <version>-compose).
+  const dpImage = `${imageRepo}/pipelines:${dpVersion}`;
   const mappingImage = `${imageRepo}/mapping:${mappingVersion}`;
 
   const spokeAddressSpace = config.require('spokeAddressSpace');

@@ -16,7 +16,7 @@ Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure 
                                                      └─► /blob/* ─► Blob PE :443 (optional, see blobPublicBaseUrl)
  ┌──────────── Spoke VNet (this stack) ──────────────────────────────────────────────────┐
  │ app subnet  VNet integration (delegated to Microsoft.Web/serverFarms), UDR → firewall    │
- │              Function App  ingestro/pipelines:<version>-functions (Elastic Premium)     │
+ │              Function App  ingestro/pipelines:<version> (Elastic Premium)               │
  │              Mapping Web App  ingestro/mapping:<mappingVersion> (Premium v3)             │
  │ pe subnet   Private Endpoints: Function App · Mapping · Blob · File · Queue · Table ·    │
  │              Key Vault · MongoDB Atlas   (NSG: spoke + App Gateway 443, rest denied)     │
@@ -38,7 +38,7 @@ Subnets: `<prefix>-<environment>-app-subnet` and `<prefix>-<environment>-pe-subn
 
 ## Upgrade and rollback
 
-- **Upgrade:** change `version` (and/or `mappingVersion`), then `pulumi up`. The apps switch to the new image tags (`<version>-functions` for DP).
+- **Upgrade:** change `version` (and/or `mappingVersion`), then `pulumi up`. The apps switch to the new image tags (`ingestro/pipelines:<version>`, `ingestro/mapping:<mappingVersion>`).
 - **Rollback:** set the previous `version`, then `pulumi up`.
 
 ## Prerequisites
