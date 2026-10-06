@@ -48,6 +48,8 @@ config:
     sites: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net
   # Link the zones above to this spoke VNet (when no hub DNS proxy resolves them for the spoke)
   pipeline-self-host:linkPrivateDnsZonesToSpoke: false
+  # App Gateway URL used as the embeddables baseUrl (exported as `endpoint`)
+  # pipeline-self-host:apiBaseUrl: https://ingestro.company.local
   # Serve browser SAS URLs through an App Gateway path rule /blob/* (see the guide)
   # pipeline-self-host:blobPublicBaseUrl: https://ingestro.company.local/blob
   # Without it: browser subnets allowed to reach the Blob Private Endpoint (PE subnet NSG)

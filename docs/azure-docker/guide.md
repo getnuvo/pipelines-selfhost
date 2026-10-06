@@ -114,7 +114,7 @@ You create and operate the Atlas clusters; this stack creates the Azure side of 
 
    The Function App reads the secret through a Key Vault reference; the restart makes it pick up the new value right away (otherwise it refreshes within 24 hours).
 
-5. Check from inside the network (e.g. a jump host in a peered subnet) that the `-pl-0` host name resolves to `atlasPrivateEndpointIp`.
+5. Check from inside the network (e.g. a jump host in a peered subnet) that the `-pl-0` host name resolves to `atlasPrivateEndpointIp`. Atlas publishes these DNS records from the IP you registered in step 3, so no Private DNS zone is needed on your side.
 
 ## Deploy
 
@@ -149,6 +149,7 @@ After the first `pulumi up`, take the values from `pulumi stack output azureDock
    | other     | none (404)                            | Keeps `/functions/*` and the root private |
 
 3. **Embeddables:** set `baseUrl` to the App Gateway host only, e.g. `https://ingestro.company.local`.
+   - Set the same value as `apiBaseUrl` and run `pulumi up` to publish it as `pulumi stack output endpoint`. Without it, `endpoint` stays empty, because the Function App URL is private.
    - Don't add `/dp`. The SDK appends `/dp/api/v1` itself, so `.../dp` ends in 404s on `/dp/dp/...`.
 4. **Access tokens:** your backend requests them from `https://<your-app-gateway-host>/dp/api/v1/access/token` with the license key of that environment. Self-host forwards the request to Ingestro Cloud.
 

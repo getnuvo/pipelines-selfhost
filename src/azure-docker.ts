@@ -109,6 +109,9 @@ export const run = () => {
   ];
   // Browser SAS URLs through a proxy origin (App Gateway path rule), e.g. https://ingestro.company.local/blob
   const blobPublicBaseUrl = config.get('blobPublicBaseUrl');
+  // The App Gateway URL clients use as baseUrl, e.g. https://ingestro.company.local. The Function
+  // App itself is private, so `endpoint` is only exported when this is set.
+  const apiBaseUrl = config.get('apiBaseUrl');
 
   // May hold credentials, so it is read and passed on as a secret.
   const mappingModuleEnv =
@@ -126,8 +129,14 @@ export const run = () => {
       });
 
   const clientConfig = authorization.getClientConfigOutput();
-  const roleDefinitionId = (roleId: string) =>
-    pulumi.interpolate`/subscriptions/${clientConfig.subscriptionId}/providers/Microsoft.Authorization/roleDefinitions/${roleId}`;
+  // Built-in roles are referenced in the scope's subscription (acrId may be in another one).
+  const roleDefinitionId = (roleId: string, scope: pulumi.Input<string>) =>
+    pulumi
+      .output(scope)
+      .apply(
+        (id) =>
+          `/subscriptions/${id.split('/')[2]}/providers/Microsoft.Authorization/roleDefinitions/${roleId}`,
+      );
 
   const resourceGroup = new resources.ResourceGroup(name('rg'), { location });
   const resourceGroupName = resourceGroup.name;
@@ -212,6 +221,11 @@ export const run = () => {
   // The App Gateway reaches the Function App through its Private Endpoint, so the endpoint
   // subnet gets the inbound rules.
   const blobClientCidrs = config.getObject<string[]>('blobClientCidrs') || [];
+  // Marks the Blob Private Endpoint so browser subnets reach only Blob, not the other endpoints.
+  const blobAsg = new network.ApplicationSecurityGroup(name('blob-asg'), {
+    resourceGroupName,
+    location,
+  });
   const peNsg = new network.NetworkSecurityGroup(name('pe-nsg'), {
     resourceGroupName,
     location,
@@ -247,7 +261,7 @@ export const run = () => {
         protocol: 'Tcp',
         sourceAddressPrefix: cidr,
         sourcePortRange: '*',
-        destinationAddressPrefix: '*',
+        destinationApplicationSecurityGroups: [{ id: blobAsg.id }],
         destinationPortRange: '443',
       })),
       denyOtherVnetInbound,
@@ -273,6 +287,7 @@ export const run = () => {
     privateLinkServiceId: pulumi.Input<string>,
     groupId: string,
     zone: string,
+    asg?: network.ApplicationSecurityGroup,
   ) => {
     const pe = new network.PrivateEndpoint(name(`${suffix}-pe`), {
       resourceGroupName,
@@ -281,6 +296,7 @@ export const run = () => {
       privateLinkServiceConnections: [
         { name: suffix, privateLinkServiceId, groupIds: [groupId] },
       ],
+      ...(asg ? { applicationSecurityGroups: [{ id: asg.id }] } : {}),
     });
     const dns = new network.PrivateDnsZoneGroup(name(`${suffix}-pe-dns`), {
       resourceGroupName,
@@ -350,7 +366,13 @@ export const run = () => {
   );
 
   const storagePes = ['blob', 'file', 'queue', 'table'].map((service) =>
-    privateEndpoint(service, storageAccount.id, service, service),
+    privateEndpoint(
+      service,
+      storageAccount.id,
+      service,
+      service,
+      service === 'blob' ? blobAsg : undefined,
+    ),
   );
   const blobPe = storagePes[0];
 
@@ -475,7 +497,7 @@ export const run = () => {
       roleAssignmentName: new random.RandomUuid(name(`${suffix}-id`)).result,
       principalId,
       principalType: authorization.PrincipalType.ServicePrincipal,
-      roleDefinitionId: roleDefinitionId(roleId),
+      roleDefinitionId: roleDefinitionId(roleId, scope),
       scope,
     });
 
@@ -547,15 +569,19 @@ export const run = () => {
     shareName: 'hyperformula',
   });
 
+  // Elastic Premium only: VNet integration, Private Endpoints and maximumElasticWorkerCount.
+  const functionPlanSku = config.get('functionPlanSku') || 'EP1';
+  if (!/^EP[1-3]$/.test(functionPlanSku)) {
+    throw new Error(
+      `functionPlanSku must be EP1, EP2 or EP3 (Elastic Premium), got ${functionPlanSku}.`,
+    );
+  }
   const functionPlan = new web.AppServicePlan(name('func-plan'), {
     resourceGroupName,
     location,
     kind: 'functionapp,linux',
     reserved: true,
-    sku: {
-      name: config.get('functionPlanSku') || 'EP1',
-      tier: 'ElasticPremium',
-    },
+    sku: { name: functionPlanSku, tier: 'ElasticPremium' },
     maximumElasticWorkerCount: config.getNumber('functionMaxInstances') || 3,
   });
   const mappingPlan = new web.AppServicePlan(name('mapping-plan'), {
@@ -750,7 +776,7 @@ export const run = () => {
   return {
     ...commonOutputs,
     // Host only: the embeddable SDKs append /dp/api/v1 to baseUrl themselves.
-    endpoint: functionUrl,
+    endpoint: apiBaseUrl ? pulumi.output(apiBaseUrl) : undefined,
     functionAppName: functionApp.name,
     logAnalyticsWorkspaceId: logs.id,
     functionAppHostname: functionApp.defaultHostName,
