@@ -1,0 +1,26 @@
+docs/azure-docker/guide.md
+  s_a9d70aca6354cf::t_52b09a1ee29a08 65-68,73-75
+  s_a9d70aca6354cf::t_93cd82424b809a 69-72,195-196,198-200
+  s_a9d70aca6354cf::t_36a5829bcbde65 186-194,197
+src/azure-docker.ts
+  s_a9d70aca6354cf::t_47fa2df432a8d9 104-109
+  s_a9d70aca6354cf::t_f1b5e1d5ef4b56 26-31
+Pulumi.azure-docker.yaml.example
+  s_a9d70aca6354cf::t_b950c6981d7b10 62-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "355e139558670b0273c9adfd8ff35f8d7b497e51",
+  "prompts": {},
+  "sessions": {
+    "s_a9d70aca6354cf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ab48b547-6868-470b-9d94-7ab356a295d7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}
