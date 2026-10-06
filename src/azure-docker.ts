@@ -506,6 +506,7 @@ export const run = () => {
 
   const commonOutputs = {
     healthProbePath: HEALTH_PROBE_PATH,
+    resourceGroupName,
     keyVaultName: vault.name,
     storageAccountName: storageAccount.name,
     blobPrivateEndpointIp: privateEndpointIp(blobPe.pe),

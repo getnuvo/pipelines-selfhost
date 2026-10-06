@@ -59,7 +59,7 @@ Subnets: `<prefix>-<environment>-app-subnet` and `<prefix>-<environment>-pe-subn
 
 - VNet peering between hub and spoke. This stack does not create peering.
 - An App Gateway listener + certificate for your hostname, e.g. `ingestro.company.local`.
-- A MongoDB Atlas cluster (MongoDB ≥ 5.0) with Azure Private Link enabled (dedicated tier M10+).
+- A MongoDB Atlas cluster per environment, managed by you (see [MongoDB Atlas](#mongodb-atlas)).
 - A DP license key per environment (dev key for Dev, live key for Prod).
 
 ### Deployer machine
@@ -68,6 +68,43 @@ Subnets: `<prefix>-<environment>-app-subnet` and `<prefix>-<environment>-pe-subn
 - Outbound access to `api-gateway.ingestro.com`, used at deploy time to get the registry key for Docker Hub pulls (not needed with ACR).
 - An Azure role that can create resources and role assignments in the subscription (e.g. Owner, or Contributor + User Access Administrator).
 
+## MongoDB Atlas
+
+You create and operate the Atlas clusters; this stack creates the Azure side of the Private Endpoint and stores the connection string in Key Vault.
+
+**Requirements**
+
+- One cluster per environment (Dev, Prod), MongoDB ≥ 5.0, on Azure in the same region as the stack (`location`).
+- A **dedicated tier, M10 or larger**: Atlas Private Link is not available on free, Flex or serverless clusters.
+- A database user with `readWrite` on the databases set in `DB_NAME` (default `ingestro`) and `LOG_DB_NAME` (default `ingestro_logging`).
+- No public IPs in the cluster's IP access list: Ingestro connects only through the Private Endpoint.
+
+**Steps (per environment)**
+
+1. In Atlas, open **Network Access → Private Endpoint → Dedicated cluster → Microsoft Azure**, pick the region, and copy the **Private Link Service resource ID** it shows.
+2. Set it in the stack, plus a temporary connection string (Pulumi needs one on the first run; the standard SRV string is fine):
+
+   ```bash
+   pulumi config set ATLAS_PRIVATE_LINK_SERVICE_ID '<private-link-service-resource-id>'
+   pulumi config set --secret MONGO_CONNECTION_STRING '<temporary-srv-string>'
+   pulumi up
+   ```
+
+3. Back in Atlas, finish the endpoint with `atlasPrivateEndpointId` (the Azure Private Endpoint resource ID) and `atlasPrivateEndpointIp` from `pulumi stack output azureDocker`. Wait until the endpoint is **Available**.
+4. In Atlas, **Connect → Private Endpoint → Drivers**, copy the private endpoint SRV string (`mongodb+srv://<cluster>-pl-0.<id>.mongodb.net/...`) with the database user, then:
+
+   ```bash
+   pulumi config set --secret MONGO_CONNECTION_STRING '<private-endpoint-srv-string>'
+   pulumi up
+   az functionapp restart \
+     --name "$(pulumi stack output azureDocker --json | jq -r .functionAppName)" \
+     --resource-group "$(pulumi stack output azureDocker --json | jq -r .resourceGroupName)"
+   ```
+
+   The Function App reads the secret through a Key Vault reference; the restart makes it pick up the new value right away (otherwise it refreshes within 24 hours).
+
+5. Check from inside the network (e.g. a jump host in a peered subnet) that the `-pl-0` host name resolves to `atlasPrivateEndpointIp`.
+
 ## Deploy
 
 ```bash
@@ -75,7 +112,7 @@ npm install
 pulumi stack init <customer>-dev
 cp Pulumi.azure-docker.yaml.example Pulumi.<customer>-dev.yaml   # edit values
 pulumi config set --secret INGESTRO_LICENSE_KEY <dev-license-key>
-pulumi config set --secret MONGO_CONNECTION_STRING '<atlas-private-endpoint-srv>'
+pulumi config set --secret MONGO_CONNECTION_STRING '<atlas-srv-string>'   # see MongoDB Atlas
 pulumi config set --secret S3_CONNECTOR_SECRET_KEY "$(openssl rand -hex 32)"
 pulumi config set --secret mappingAzureOpenaiApiKey <key>
 pulumi up
@@ -83,15 +120,23 @@ pulumi up
 
 After the first `pulumi up`, take the values from `pulumi stack output azureDocker`:
 
-1. **Atlas:** approve the private endpoint, and register `atlasPrivateEndpointId` / `atlasPrivateEndpointIp` in Atlas.
+1. **Atlas:** finish the Private Endpoint and switch to the private connection string (steps 3–4 in [MongoDB Atlas](#mongodb-atlas)).
 2. **App Gateway**
    - **Backend pool:** `functionAppHostname`. It resolves to `functionAppPrivateEndpointIp` through `privatelink.azurewebsites.net`.
    - **Backend settings:** HTTPS 443, with the host header overridden to `functionAppHostname`.
    - **Health probe:** `GET /dp/api/v1/management/health` (expects 200).
+   - **Route only `/dp/*` to the Function App.** The app also serves internal `/functions/*` routes that DP calls on itself (protected by a token); they must not be reachable through the App Gateway. Return 404 (or a redirect) for every other path.
    - **Optional, keep file transfers behind the WAF:**
      - Add a path rule `/blob/*` → rewrite to strip `/blob` → backend `<storageAccountName>.blob.core.windows.net` (the Blob Private Endpoint), HTTPS 443, host header overridden to that name.
      - Then set `blobPublicBaseUrl: https://<your-app-gateway-host>/blob` and run `pulumi up`.
      - SAS signatures don't depend on the host, so the proxied URLs stay valid.
+
+   | Path      | Backend                               | Notes                                     |
+   | --------- | ------------------------------------- | ----------------------------------------- |
+   | `/dp/*`   | Function App (`functionAppHostname`)  | API + health probe                        |
+   | `/blob/*` | Blob Private Endpoint (strip `/blob`) | Only with `blobPublicBaseUrl`             |
+   | other     | none (404)                            | Keeps `/functions/*` and the root private |
+
 3. **Embeddables:** set `baseUrl` to the App Gateway host only, e.g. `https://ingestro.company.local`.
    - Don't add `/dp`. The SDK appends `/dp/api/v1` itself, so `.../dp` ends in 404s on `/dp/dp/...`.
 4. **Access tokens:** your backend requests them from `https://<your-app-gateway-host>/dp/api/v1/access/token` with the license key of that environment. Self-host forwards the request to Ingestro Cloud.
