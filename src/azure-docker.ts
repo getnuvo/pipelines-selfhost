@@ -479,12 +479,19 @@ export const run = () => {
       { retainOnDelete: true },
     );
 
-  const secrets = secretEntries.map((entry) =>
-    createSecret(secretName(entry.env), entry.value),
+  const secretsByName = new Map(
+    secretEntries.map((entry) => [
+      secretName(entry.env),
+      createSecret(secretName(entry.env), entry.value),
+    ]),
   );
   if (dockerKey) {
-    secrets.push(createSecret('registry-password', dockerKey));
+    secretsByName.set(
+      'registry-password',
+      createSecret('registry-password', dockerKey),
+    );
   }
+  const secrets = [...secretsByName.values()];
 
   // Role assignment names must be GUIDs.
   const grant = (
@@ -665,8 +672,11 @@ export const run = () => {
       : []),
   ];
 
-  const kvRef = (env: string) =>
-    pulumi.interpolate`@Microsoft.KeyVault(VaultName=${vault.name};SecretName=${secretName(env)})`;
+  // Versioned references: a changed secret changes the app setting, which makes App Service
+  // fetch it right away (unversioned references are cached for up to 24 hours, even across restarts).
+  const kvSecretRef = (secret: string) =>
+    pulumi.interpolate`@Microsoft.KeyVault(SecretUri=${secretsByName.get(secret)!.properties.secretUriWithVersion})`;
+  const kvRef = (env: string) => kvSecretRef(secretName(env));
   const secretRefs = (file: 'dp' | 'mapping') =>
     Object.fromEntries(
       secretEntries
@@ -678,7 +688,7 @@ export const run = () => {
     : {
         DOCKER_REGISTRY_SERVER_URL: 'https://index.docker.io',
         DOCKER_REGISTRY_SERVER_USERNAME: 'getnuvo',
-        DOCKER_REGISTRY_SERVER_PASSWORD: pulumi.interpolate`@Microsoft.KeyVault(VaultName=${vault.name};SecretName=registry-password)`,
+        DOCKER_REGISTRY_SERVER_PASSWORD: kvSecretRef('registry-password'),
       };
   const functionUrl = pulumi.interpolate`https://${functionApp.defaultHostName}`;
   const mappingUrl = pulumi.interpolate`https://${mappingApp.defaultHostName}`;

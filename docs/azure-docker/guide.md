@@ -101,20 +101,17 @@ You create and operate the Atlas clusters; this stack creates the Azure side of 
    pulumi up
    ```
 
-3. Back in Atlas, finish the endpoint with `atlasPrivateEndpointId` (the Azure Private Endpoint resource ID) and `atlasPrivateEndpointIp` from `pulumi stack output azureDocker`. Wait until the endpoint is **Available**.
+3. Back in Atlas, click **Add Endpoint** and finish it with `atlasPrivateEndpointId` (the Azure Private Endpoint resource ID) and `atlasPrivateEndpointIp` from `pulumi stack output azureDocker`. Skip the `az network private-endpoint create` command Atlas shows; this stack already created the endpoint. Wait until the endpoint is **Available**.
 4. In Atlas, **Connect → Private Endpoint → Drivers**, copy the private endpoint SRV string (`mongodb+srv://<cluster>-pl-0.<id>.mongodb.net/...`) with the database user, then:
 
    ```bash
    pulumi config set --secret MONGO_CONNECTION_STRING '<private-endpoint-srv-string>'
    pulumi up
-   az functionapp restart \
-     --name "$(pulumi stack output azureDocker --json | jq -r .functionAppName)" \
-     --resource-group "$(pulumi stack output azureDocker --json | jq -r .resourceGroupName)"
    ```
 
-   The Function App reads the secret through a Key Vault reference; the restart makes it pick up the new value right away (otherwise it refreshes within 24 hours).
+   The app settings reference the exact secret version, so `pulumi up` points them at the new version and App Service restarts with it. No manual restart is needed.
 
-5. Check from inside the network (e.g. a jump host in a peered subnet) that the `-pl-0` host name resolves to `atlasPrivateEndpointIp`. Atlas publishes these DNS records from the IP you registered in step 3, so no Private DNS zone is needed on your side.
+5. Check from inside the network (e.g. a jump host in a peered subnet) that the `-pl-0` host name resolves to `atlasPrivateEndpointIp`. Atlas publishes these DNS records from the IP you registered in step 3, so no Private DNS zone is needed on your side. Atlas on Azure serves each node on its own port from 1024 up (not 27017), so any rule between the app subnet and the endpoint subnet must allow that range.
 
 ## Deploy
 
