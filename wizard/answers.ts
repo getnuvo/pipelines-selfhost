@@ -4,7 +4,11 @@ import { QUESTIONS, type Answer, type Answers } from './questions';
 import { WizardError } from './ui';
 
 /** Keys the answers file may hold besides the questions. */
-export const META_KEYS = ['stackName', 'subscriptionId'];
+export const META_KEYS = [
+  'stackName',
+  'subscriptionId',
+  'pulumiPassphraseFile',
+];
 
 // `env:NAME` keeps secrets out of the file.
 const resolve = (value: string, key: string, errors: string[]) => {

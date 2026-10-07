@@ -1,14 +1,15 @@
-import { input, password, select } from '@inquirer/prompts';
-import { checkLicense } from './license';
+import { input, password, search, select } from '@inquirer/prompts';
+import type { Discovery } from './azure';
 import { configValue, type StackConfig } from './pulumi';
 import {
+  choicesFor,
   isActive,
   QUESTIONS,
   type Answer,
   type Answers,
   type Question,
 } from './questions';
-import { heading, warn, WizardError } from './ui';
+import { dim, heading, info, ok, WizardError } from './ui';
 import * as v from './validate';
 
 interface Sources {
@@ -16,7 +17,57 @@ interface Sources {
   file: Answers;
   existing: StackConfig;
   batch: boolean;
+  discovery: Discovery;
+  subscriptionId: string;
 }
+
+const MANUAL = '\u0000manual';
+
+/** Offer what was found in Azure; the current value stays first even when it was not found. */
+const pick = async (
+  question: Question,
+  current: Answer | undefined,
+  found: { value: string; name: string }[],
+  answers: Answers,
+) => {
+  const currentValue = typeof current === 'string' ? current : undefined;
+  const choices = [
+    ...(currentValue && !found.some((item) => item.value === currentValue)
+      ? [{ value: currentValue, name: `${currentValue}  (current)` }]
+      : []),
+    ...found,
+    { value: MANUAL, name: 'Enter another value' },
+  ];
+  // Long lists (e.g. Azure regions) get a type-to-filter prompt, with the current value on top.
+  const choice =
+    choices.length > 15
+      ? await search({
+          message: `${question.message} (type to filter)`,
+          pageSize: 12,
+          source: (term) => {
+            const ordered = [
+              ...choices.filter((item) => item.value === currentValue),
+              ...choices.filter((item) => item.value !== currentValue),
+            ];
+            const needle = term?.toLowerCase().trim();
+
+            return needle
+              ? ordered.filter(
+                  (item) =>
+                    item.value === MANUAL ||
+                    item.name.toLowerCase().includes(needle),
+                )
+              : ordered;
+          },
+        })
+      : await select({
+          message: question.message,
+          choices,
+          default: currentValue ?? found[0]?.value,
+        });
+
+  return choice === MANUAL ? ask(question, undefined, answers) : choice;
+};
 
 const fromStack = (
   question: Question,
@@ -52,14 +103,18 @@ const errorsFor = (
     const error = validator(item);
     if (error) return Array.isArray(answer) ? `${item}: ${error}` : error;
   }
-  if (
-    question.choices &&
-    !question.choices.some((choice) => choice.value === answer)
-  )
-    return `One of: ${question.choices.map((choice) => choice.value).join(', ')}.`;
+  const choices = choicesFor(question, answers);
+  if (question.choices && !choices.some((choice) => choice.value === answer))
+    return `One of: ${choices.map((choice) => choice.value).join(', ')}.`;
 
   return undefined;
 };
+
+/** `.../resourceGroups/hub-rg/.../zone` -> `resource group hub-rg` for progress lines. */
+const shortId = (answer: Answer) =>
+  typeof answer === 'string' && answer.startsWith('/subscriptions/')
+    ? `resource group ${answer.split('/')[4]}`
+    : String(answer);
 
 const splitList = (text: string) =>
   text
@@ -72,13 +127,20 @@ const ask = async (
   current: Answer | undefined,
   answers: Answers,
 ) => {
-  const validate = (answer: Answer | undefined) =>
-    errorsFor(question, answer, answers) ?? true;
+  // Inline: the prompt shows a spinner while checking and stays open until the value passes.
+  const validate = async (answer: Answer | undefined) => {
+    const error = errorsFor(question, answer, answers);
+    if (error) return error;
+    if (question.check && typeof answer === 'string' && answer)
+      return (await question.check(answer, answers)) ?? true;
+
+    return true;
+  };
   switch (question.kind) {
     case 'select':
       return select({
         message: question.message,
-        choices: question.choices ?? [],
+        choices: choicesFor(question, answers),
         default: typeof current === 'string' ? current : undefined,
       });
     case 'secret': {
@@ -86,7 +148,7 @@ const ask = async (
       const value = await password({
         message: `${question.message}${keep ? ' (Enter keeps the current value)' : ''}`,
         mask: '*',
-        validate: (text) => (keep && text === '' ? true : validate(text)),
+        validate: (text) => validate(keep && text === '' ? current : text),
       });
 
       return keep && value === '' ? current : value;
@@ -116,6 +178,8 @@ export const collectAnswers = async ({
   file,
   existing,
   batch,
+  discovery,
+  subscriptionId,
 }: Sources): Promise<Answers> => {
   const answers: Answers = {};
   const problems: string[] = [];
@@ -123,45 +187,84 @@ export const collectAnswers = async ({
 
   for (const question of QUESTIONS) {
     if (!isActive(question, answers)) continue;
+    // The current value counts as an answer for `auto` (e.g. an Atlas private string already set).
+    const fixed = question.auto?.({
+      ...answers,
+      [question.key]: file[question.key] ?? fromStack(question, existing),
+    });
+    if (fixed !== undefined) {
+      answers[question.key] = fixed;
+      continue;
+    }
+    if (answers.hubMode === 'test' && question.testHub) {
+      answers[question.key] = question.testHub({ subscriptionId });
+      continue;
+    }
     const known = file[question.key] ?? fromStack(question, existing);
     let answer: Answer | undefined;
 
     if (question.hidden || batch) {
       answer = known ?? question.default?.(answers) ?? question.generate?.();
-      const error = errorsFor(question, answer, answers);
+      if (question.kind === 'list' && typeof answer === 'string')
+        answer = splitList(answer);
+      if (answer === undefined && question.discover) {
+        const found = await question.discover(discovery, answers);
+        if (found.length === 1) {
+          answer = found[0].value;
+          ok(`${question.key}: found ${found[0].name}`);
+        } else if (found.length === 0 && !question.optional) {
+          problems.push(
+            `${question.key}: not found in the subscriptions you can see; set it in the answers file.`,
+          );
+          continue;
+        } else if (found.length > 1) {
+          problems.push(
+            `${question.key}: ${found.length} candidates found, set one:\n      ${found.map((item) => item.value).join('\n      ')}`,
+          );
+          continue;
+        }
+      }
+      const error =
+        errorsFor(question, answer, answers) ??
+        (question.check && typeof answer === 'string' && answer
+          ? await question.check(answer, answers)
+          : undefined);
       if (error) problems.push(`${question.key}: ${error}`);
     } else {
       if (question.section !== section) {
         section = question.section;
         heading(section);
       }
-      answer = await ask(
-        question,
-        known ?? question.default?.(answers),
-        answers,
-      );
+      const current = known ?? question.default?.(answers);
+      if (
+        question.autoAccept &&
+        current !== undefined &&
+        !errorsFor(question, current, answers)
+      ) {
+        answers[question.key] = current;
+        ok(
+          `${question.message.replace(/^Resource ID of /, '')}: ${shortId(current)}`,
+        );
+        continue;
+      }
+      const found = question.discover
+        ? await question.discover(discovery, answers)
+        : [];
+      if (question.discover && found.length === 0)
+        info(dim('  Nothing found in your subscriptions; enter it by hand.'));
+      if (question.autoAccept && found.length === 1) {
+        answers[question.key] = found[0].value;
+        ok(
+          `${question.message.replace(/^Resource ID of /, '')}: ${found[0].name}`,
+        );
+        continue;
+      }
+      answer =
+        found.length > 0
+          ? await pick(question, current, found, answers)
+          : await ask(question, current, answers);
     }
     answers[question.key] = answer;
-
-    // Check the license as soon as it is known, so a wrong key fails before anything else.
-    if (question.key === 'licenseKey' && typeof answer === 'string' && answer) {
-      let error = await checkLicense(
-        answer,
-        String(answers.version),
-        answers.selfHostDeploymentUrl as string,
-      );
-      while (error && !batch) {
-        warn(error);
-        answer = await ask(question, undefined, answers);
-        answers[question.key] = answer;
-        error = await checkLicense(
-          String(answer),
-          String(answers.version),
-          answers.selfHostDeploymentUrl as string,
-        );
-      }
-      if (error) problems.push(`licenseKey: ${error}`);
-    }
   }
 
   if (problems.length > 0)

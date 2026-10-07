@@ -7,6 +7,7 @@ import {
   ipOutside,
   mongoUri,
   notOverlapping,
+  nthSubnet24,
   notPlaceholder,
   origin,
   resourceId,
@@ -108,5 +109,13 @@ describe('azureNameParts', () => {
     assert.equal(azureNameParts('ingestro', 'dev'), ok);
     assert.match(azureNameParts('ingestro', 'production') ?? '', /too long/);
     assert.match(azureNameParts('Ingestro', 'dev') ?? '', /lowercase/);
+  });
+});
+
+describe('nthSubnet24', () => {
+  it('suggests /24 subnets inside the spoke', () => {
+    assert.equal(nthSubnet24('10.20.0.0/16', 1), '10.20.1.0/24');
+    assert.equal(nthSubnet24('10.30.4.0/22', 2), '10.30.6.0/24');
+    assert.equal(nthSubnet24('10.20.0.0/24', 1), undefined);
   });
 });

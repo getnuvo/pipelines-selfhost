@@ -112,3 +112,13 @@ export const up = (stack: Stack): Promise<OutputMap> =>
   stack
     .up({ onOutput: write, color: 'always' })
     .then((result) => result.outputs);
+
+/** The deployed spoke VNet ID, when the stack has been deployed with that output. */
+export const spokeVnetId = async (stack: Stack) => {
+  const outputs = await stack.outputs().catch(() => ({}) as OutputMap);
+  const docker = outputs['azureDocker']?.value as
+    | { spokeVnetId?: string }
+    | undefined;
+
+  return docker?.spokeVnetId;
+};

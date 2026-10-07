@@ -83,3 +83,60 @@ export const registerProvider = (namespace: string, subscriptionId: string) =>
     subscriptionId,
     '--wait',
   ]);
+
+export interface FoundResource {
+  id: string;
+  name: string;
+  subscriptionId: string;
+}
+
+export interface Region {
+  name: string;
+  displayName: string;
+  geography?: string;
+}
+
+const perSubscription = async <T>(
+  subscriptionIds: string[],
+  list: (subscriptionId: string) => Promise<T[]>,
+) =>
+  (
+    await Promise.all(
+      subscriptionIds.map((id) => list(id).catch(() => [] as T[])),
+    )
+  ).flat();
+
+/** Looks across every enabled subscription in the tenant; the hub is often in another one. */
+export const discovery = (subscriptionIds: string[]) => {
+  let zones: Promise<FoundResource[]> | undefined;
+  let regions: Promise<Region[]> | undefined;
+
+  return {
+    regions: () =>
+      (regions ??= az<Region[]>(
+        'account',
+        'list-locations',
+        '--query',
+        "[?metadata.regionType=='Physical'].{name: name, displayName: displayName, geography: metadata.geographyGroup}",
+      ).then((list) =>
+        list.sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      )),
+    privateDnsZones: () =>
+      (zones ??= perSubscription(subscriptionIds, async (subscriptionId) =>
+        (
+          await az<{ id: string; name: string }[]>(
+            'network',
+            'private-dns',
+            'zone',
+            'list',
+            '--subscription',
+            subscriptionId,
+            '--query',
+            "[?starts_with(name, 'privatelink.')].{id: id, name: name}",
+          )
+        ).map((zone) => ({ ...zone, subscriptionId })),
+      )),
+  };
+};
+
+export type Discovery = ReturnType<typeof discovery>;

@@ -1,11 +1,22 @@
-import { confirm, input, password, select } from '@inquirer/prompts';
+import { confirm, input, select } from '@inquirer/prompts';
 import { parseArgs } from 'node:util';
 import { loadAnswers } from './answers';
 import * as azure from './azure';
 import { collectAnswers } from './collect';
 import * as pulumi from './pulumi';
-import { derivedConfig, isActive, QUESTIONS, type Answers } from './questions';
 import {
+  derivedConfig,
+  isActive,
+  isAtlasPrivate,
+  QUESTIONS,
+  type Answers,
+} from './questions';
+import * as atlas from './atlas';
+import * as hub from './hub';
+import { ensurePassphrase, wrongPassphrase } from './secrets';
+import {
+  banner,
+  initTheme,
   bold,
   dim,
   fail,
@@ -27,6 +38,10 @@ Re-running is safe: answers already in the stack config become the defaults.
 Options:
   --answers <file>   Batch mode: take every answer from a YAML file, no prompts
                      (see deploy.answers.example.yaml). Secrets can be env:VAR_NAME.
+
+With a local Pulumi backend, stack secrets are encrypted with a key file or a
+passphrase: the wizard asks which (or set PULUMI_CONFIG_PASSPHRASE_FILE /
+PULUMI_CONFIG_PASSPHRASE, or pulumiPassphraseFile in the answers file).
   --stack <name>     Stack to deploy (otherwise asked, or stackName in the answers file)
   --preview-only     Write the config and run a preview, but deploy nothing
   --yes              Deploy without the final confirmation (required in batch mode)
@@ -100,31 +115,6 @@ const checkProviders = async (subscriptionId: string, batch: boolean) => {
     await azure.registerProvider(namespace, subscriptionId);
   }
   ok('Resource providers registered');
-};
-
-const ensurePassphrase = async (
-  backendUrl: string | undefined,
-  batch: boolean,
-) => {
-  const local = !backendUrl || backendUrl.startsWith('file://');
-  if (
-    !local ||
-    process.env['PULUMI_CONFIG_PASSPHRASE'] !== undefined ||
-    process.env['PULUMI_CONFIG_PASSPHRASE_FILE']
-  )
-    return;
-  if (batch)
-    throw new WizardError(
-      'The Pulumi backend is local, so stack secrets need a passphrase: set PULUMI_CONFIG_PASSPHRASE or PULUMI_CONFIG_PASSPHRASE_FILE.',
-      2,
-    );
-  process.env['PULUMI_CONFIG_PASSPHRASE'] = await password({
-    message:
-      'Passphrase for the stack secrets (local Pulumi backend; keep it, you need it for every later run)',
-    mask: '*',
-    validate: (text) =>
-      text.length >= 8 ? true : 'Use at least 8 characters.',
-  });
 };
 
 const chooseStack = async (batch: boolean, wanted?: string) => {
@@ -227,11 +217,14 @@ const quotaReminder = async (answers: Answers, batch: boolean) => {
     );
 };
 
-const nextSteps = (outputs: Record<string, unknown>) => {
-  const out = (outputs['azureDocker'] ?? {}) as Record<
-    string,
-    string | undefined
-  >;
+type SpokeOutputs = Record<string, string | undefined>;
+
+const unwrap = (outputs: Record<string, { value: unknown }>) =>
+  Object.fromEntries(
+    Object.entries(outputs).map(([key, output]) => [key, output.value]),
+  );
+
+const deployedSummary = (out: SpokeOutputs) => {
   heading('Deployed');
   table([
     [
@@ -246,7 +239,40 @@ const nextSteps = (outputs: Record<string, unknown>) => {
     ['Key Vault', String(out['keyVaultName'])],
     ['Resource group', String(out['resourceGroupName'])],
   ]);
-  heading('Hand over to the network team (App Gateway)');
+};
+
+/** Everything the network admin needs to connect the spoke to the existing hub. */
+const handOver = (out: SpokeOutputs, answers: Answers) => {
+  deployedSummary(out);
+  heading('Hand over to the network admin');
+  info(bold('1. Peering (hub <-> spoke)'));
+  table([
+    ['Spoke VNet', String(out['spokeVnetId'])],
+    ['Address space', String(out['spokeAddressSpace'])],
+    ['Settings', 'both directions; allow forwarded traffic on the hub side'],
+  ]);
+  info(bold('\n2. Azure Firewall'));
+  table([
+    [
+      'Route',
+      `the spoke's app subnet sends 0.0.0.0/0 to ${answers.firewallPrivateIp} (created by this deployment)`,
+    ],
+    [
+      'Allow',
+      `${out['spokeAddressSpace']} -> api-gateway.ingestro.com, Docker Hub (registry-1.docker.io, auth.docker.io, production.cloudflare.docker.com) on 443`,
+    ],
+    [
+      'Also',
+      'the AI provider endpoint and your pipeline data sources; full list: docs/azure-docker/guide.md#firewall-rules',
+    ],
+  ]);
+  info(bold('\n3. DNS'));
+  info(
+    answers.dnsMode === 'link'
+      ? '  Done by this deployment: the hub Private DNS zones are linked to the spoke VNet.'
+      : `  The spoke uses ${String(answers.dnsServers)} as DNS server: it must resolve the privatelink.* zones (the Private Endpoint records are already in them).`,
+  );
+  info(bold('\n4. App Gateway'));
   table([
     ['Backend pool', String(out['functionAppHostname'])],
     [
@@ -260,7 +286,7 @@ const nextSteps = (outputs: Record<string, unknown>) => {
       `strip /blob -> ${out['storageAccountName']}.blob.core.windows.net (HTTPS, host header)`,
     ],
   ]);
-  heading('Verify from inside the network');
+  heading('Verify from inside the network (after the peering)');
   info(
     `  curl https://${out['functionAppHostname']}${out['healthProbePath']}   # {"data":{"message":"OK"}}`,
   );
@@ -269,7 +295,40 @@ const nextSteps = (outputs: Record<string, unknown>) => {
   );
   info(
     dim(
-      '  The same URL returns 403 from outside the network. See docs/azure-docker/guide.md.',
+      '  The apps pull their images once egress works: restart them after the peering and firewall rules are in place.',
+    ),
+  );
+};
+
+const testHubSteps = (
+  out: SpokeOutputs,
+  hub: Record<string, unknown>,
+  sshKeyFile: string,
+  stackName: string,
+) => {
+  deployedSummary(out);
+  const privateKey = sshKeyFile.replace(/\.pub$/, '');
+  heading('Try it (test hub)');
+  info('  1. Open a tunnel through the jump VM (keep it running):');
+  info(`     ssh -i ${privateKey} -N -D 1080 ingestro@${hub['jumpPublicIp']}`);
+  info('  2. Start a browser that uses it:');
+  info(
+    '     open -na "Google Chrome" --args --user-data-dir=/tmp/chrome-ingestro --proxy-server="socks5://localhost:1080"',
+  );
+  info(
+    `  3. Base URL for the dashboard / embeddables: https://${out['functionAppHostname']}`,
+  );
+  info(
+    `     Health: https://${out['functionAppHostname']}${out['healthProbePath']}`,
+  );
+  info(
+    dim(
+      '  The test hub costs money while it runs. Remove the spoke first, then the hub:',
+    ),
+  );
+  info(
+    dim(
+      `     pulumi destroy -s ${stackName}   then   (cd test/azure-docker-hub && pulumi destroy -s test)`,
     ),
   );
 };
@@ -280,7 +339,8 @@ const main = async () => {
   const batch = args.answers !== undefined;
   const file = batch ? loadAnswers(args.answers!) : {};
 
-  info(bold('Ingestro Pipelines — Azure private network deployment'));
+  await initTheme();
+  banner('Pipelines self-host · Azure private network');
   heading('Preflight');
   const subscription = await chooseSubscription(
     batch,
@@ -292,19 +352,47 @@ const main = async () => {
   await checkProviders(subscription.id, batch);
   const whoami = await pulumi.backend();
   ok(`Pulumi: ${whoami.user} @ ${whoami.url ?? 'backend'}`);
-  await ensurePassphrase(whoami.url, batch);
-
   const stackName = await chooseStack(
     batch,
     args.stack ?? (file['stackName'] as string | undefined),
   );
   const found = await pulumi.findStack(stackName);
-  const existing = found ? await pulumi.readConfig(found) : {};
+  const passphrase = {
+    backendUrl: whoami.url,
+    batch,
+    stackName,
+    existingStack: found !== undefined,
+    keyFileAnswer: file['pulumiPassphraseFile'] as string | undefined,
+  };
+  const source = await ensurePassphrase(passphrase);
+  let existing: pulumi.StackConfig = {};
+  for (let attempt = 1; found; attempt++) {
+    try {
+      existing = await pulumi.readConfig(found);
+      break;
+    } catch (err) {
+      if (!wrongPassphrase(err)) throw err;
+      const message = `Cannot decrypt the secrets of stack ${stackName}: the passphrase or key file is not the one it was created with.`;
+      if (source !== 'prompt' || attempt >= 3)
+        throw new WizardError(message, 2);
+      warn(`${message} Try again.`);
+      await ensurePassphrase({ ...passphrase, retry: true });
+    }
+  }
   ok(
     `Stack ${stackName}${found ? ' (existing config loaded)' : ' (new, created after the review)'}`,
   );
 
-  const answers = await collectAnswers({ file, existing, batch });
+  const discovery = azure.discovery(
+    (await azure.subscriptions(subscription.tenantId)).map((sub) => sub.id),
+  );
+  const answers = await collectAnswers({
+    file,
+    existing,
+    batch,
+    discovery,
+    subscriptionId: subscription.id,
+  });
   review(stackName, subscription, answers);
   await quotaReminder(answers, batch);
 
@@ -326,36 +414,116 @@ const main = async () => {
       : 'Config unchanged',
   );
 
-  heading('Preview');
+  // The test hub is configured (and previewed) together with the spoke, deployed first.
+  const sshKeyFile = String(answers.sshPublicKeyFile ?? '');
+  const hubStack =
+    answers.hubMode === 'test'
+      ? await hub.openTestHub({
+          location: String(answers.location),
+          adminIp: String(answers.adminIp),
+          sshPublicKey: await hub.loadSshPublicKey(sshKeyFile),
+          spokeAddressSpace: String(answers.spokeAddressSpace),
+          spokeVnetId: found ? await pulumi.spokeVnetId(found) : undefined,
+        })
+      : undefined;
+
+  const plan = (summary: Record<string, number | undefined>) =>
+    Object.entries(summary)
+      .map(([op, count]) => `${op}: ${count}`)
+      .join(', ') || 'no changes';
+  const hasChanges = (summary: Record<string, number | undefined>) =>
+    Object.entries(summary).some(
+      ([op, count]) => op !== 'same' && (count ?? 0) > 0,
+    );
+
+  let hubChanges = false;
+  if (hubStack) {
+    heading('Preview: test hub');
+    const hubSummary = await hub.previewHub(hubStack);
+    hubChanges = hasChanges(hubSummary);
+    info(`\n${bold('Test hub plan')}: ${plan(hubSummary)}`);
+  }
+  heading('Preview: Ingestro Pipelines');
   const summary = await pulumi.preview(stack);
-  const counts = Object.entries(summary)
-    .map(([op, count]) => `${op}: ${count}`)
-    .join(', ');
-  info(`\n${bold('Plan')}: ${counts || 'no changes'}`);
+  info(`\n${bold('Plan')}: ${plan(summary)}`);
   if (args['preview-only']) return info(dim('Preview only: nothing deployed.'));
 
-  const changesPlanned = Object.entries(summary).some(
-    ([op, count]) => op !== 'same' && (count ?? 0) > 0,
-  );
-  if (!changesPlanned) return ok('Already up to date.');
-  if (batch && !args.yes)
-    throw new WizardError(
-      'Batch mode deploys only with --yes. Preview finished, nothing deployed.',
-      2,
-    );
-  if (
-    !args.yes &&
-    !(await confirm({ message: 'Deploy now (pulumi up)?', default: false }))
-  )
-    return info(dim('Nothing deployed. Run ./deploy.sh again to continue.'));
+  const atlasPending =
+    answers.databaseMode === 'atlas' &&
+    !isAtlasPrivate(answers.mongoConnectionString);
+  let out: SpokeOutputs;
+  let hubOutputs: Record<string, unknown> = {};
 
-  heading('Deploy');
-  const outputs = await pulumi.up(stack);
-  nextSteps(
-    Object.fromEntries(
-      Object.entries(outputs).map(([key, output]) => [key, output.value]),
-    ),
-  );
+  if (!hasChanges(summary) && !hubChanges) {
+    ok('Already up to date.');
+    if (!atlasPending) return;
+    // Resuming the Atlas second round: the endpoint already exists.
+    out = unwrap(await stack.outputs())['azureDocker'] as SpokeOutputs;
+  } else {
+    if (batch && !args.yes)
+      throw new WizardError(
+        'Batch mode deploys only with --yes. Preview finished, nothing deployed.',
+        2,
+      );
+    if (
+      !args.yes &&
+      !(await confirm({
+        message: hubStack
+          ? 'Deploy the test hub and Ingestro Pipelines now (pulumi up)?'
+          : 'Deploy now (pulumi up)?',
+        default: false,
+      }))
+    )
+      return info(dim('Nothing deployed. Run ./deploy.sh again to continue.'));
+
+    if (hubStack) {
+      heading('Deploy: test hub');
+      hubOutputs = unwrap(await hub.upHub(hubStack));
+    }
+    heading('Deploy: Ingestro Pipelines');
+    out = unwrap(await pulumi.up(stack))['azureDocker'] as SpokeOutputs;
+
+    if (hubStack) {
+      heading('Peering the test hub with the spoke');
+      hubOutputs = unwrap(
+        await hub.peerHub(hubStack, String(out['spokeVnetId'])),
+      );
+      info(
+        dim(
+          '  restarting the apps so they pull their images through the hub...',
+        ),
+      );
+      await hub.restartApps(String(out['resourceGroupName']), [
+        String(out['functionAppName']),
+        String(out['mappingAppHostname']).split('.')[0],
+      ]);
+    }
+  }
+
+  if (answers.databaseMode === 'atlas') {
+    const endpointId = String(out['atlasPrivateEndpointId']);
+    const endpointIp = String(out['atlasPrivateEndpointIp']);
+    let uri = String(answers.mongoConnectionString);
+    if (atlasPending) {
+      atlas.registerInstructions(endpointId, endpointIp);
+      if (batch)
+        throw new WizardError(
+          'Atlas: register the endpoint above, then set mongoConnectionString to the private connection string (host with -pl-) and run again.',
+          3,
+        );
+      await atlas.waitForApproval(endpointId);
+      uri = await atlas.askPrivateConnectionString();
+      await pulumi.writeConfig(stack, [
+        { key: 'MONGO_CONNECTION_STRING', value: uri, secret: true },
+      ]);
+      heading('Deploy: Atlas private connection string');
+      out = unwrap(await pulumi.up(stack))['azureDocker'] as SpokeOutputs;
+    }
+    await atlas.checkPrivateDns(uri, endpointIp);
+  }
+
+  if (hubStack) testHubSteps(out, hubOutputs, sshKeyFile, stackName);
+  else handOver(out, answers);
   info(`\n${green('Done.')}`);
 };
 

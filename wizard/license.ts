@@ -1,4 +1,5 @@
-import { LIVE_SELF_HOST_URL } from './questions';
+export const LIVE_SELF_HOST_URL =
+  'https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment';
 
 /**
  * Same call `pulumi up` makes (src/utils/ingestro.ts), done up front so a wrong key or

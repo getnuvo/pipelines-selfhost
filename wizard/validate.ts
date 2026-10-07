@@ -33,6 +33,19 @@ export const parseCidr = (value: string): Cidr | undefined => {
   return { start: address, end: address + size - 1, prefix };
 };
 
+const formatIpv4 = (address: number) =>
+  [24, 16, 8, 0]
+    .map((shift) => Math.floor(address / 2 ** shift) % 256)
+    .join('.');
+
+/** The n-th /24 of a range (n = 1 -> x.y.1.0/24), when the range is /22 or larger. */
+export const nthSubnet24 = (range: string, n: number) => {
+  const parsed = parseCidr(range);
+  if (!parsed || parsed.prefix > 22) return undefined;
+
+  return `${formatIpv4(parsed.start + n * 256)}/24`;
+};
+
 export const cidrContains = (outer: Cidr, inner: Cidr) =>
   inner.start >= outer.start && inner.end <= outer.end;
 

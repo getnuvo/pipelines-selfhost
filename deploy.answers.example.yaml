@@ -1,11 +1,12 @@
 # Answers for batch mode: ./deploy.sh --answers acme-dev.answers.yaml --yes
 # Copy this file per environment as <stack>.answers.yaml (git-ignored). Every key matches a wizard question; see docs/azure-docker/guide.md.
 # Secrets: write env:VAR_NAME and export the variable, so the secret never sits in this file.
-# Local Pulumi backend: also export PULUMI_CONFIG_PASSPHRASE (or PULUMI_CONFIG_PASSPHRASE_FILE).
 # Values already in the stack config are kept when a key is left out here.
 
 stackName: acme-dev
 # subscriptionId: 00000000-0000-0000-0000-000000000000   # default: current `az account`
+# Local Pulumi backend only: key file that encrypts the stack secrets (or export PULUMI_CONFIG_PASSPHRASE)
+pulumiPassphraseFile: ~/.pulumi/ingestro.passphrase
 
 # Stack
 prefix: ingestro
@@ -19,22 +20,28 @@ mappingVersion: '<mapping-tag>' # pin a concrete tag
 # License (checked against Ingestro before anything is deployed)
 licenseKey: env:INGESTRO_LICENSE_KEY
 
-# App Service plans (the subscription needs App Service quota for these)
-functionPlanSku: EP1 # EP1 | EP2 | EP3
-functionMaxInstances: 3
-mappingPlanSku: P1v3
+# App Service plans: not asked, the defaults below are used (the subscription needs App Service quota for them)
+# functionPlanSku: EP1 # EP1 | EP2 | EP3
+# functionMaxInstances: 2
+# mappingPlanSku: P1v3
 
-# Spoke network (must not overlap the hub, AVD or other spokes)
-spokeAddressSpace: 10.20.0.0/16
-appSubnetPrefix: 10.20.1.0/24
-peSubnetPrefix: 10.20.2.0/24
+# Hub: existing = your hub (the wizard prints what the network admin must set up),
+#      test = the wizard deploys test/azure-docker-hub for you (testing only, not for production)
+hubMode: existing
+# With hubMode: test, the hub values below are filled in from the test hub, plus:
+# adminIp: 203.0.113.10                          # default: this machine's public IP
+# sshPublicKeyFile: ~/.ssh/ingestro-test-hub.pub # generated when it does not exist
 
-# Hub network (yours)
-firewallPrivateIp: 10.0.0.4
-appGatewaySubnetCidr: 10.0.1.0/24
+# Network: not asked, the recommended values below are used. The hub values must match your hub.
+# spokeAddressSpace: 10.20.0.0/16 # must not overlap the hub, AVD or other spokes
+# appSubnetPrefix: 10.20.1.0/24   # default: the spoke's .1.0/24
+# peSubnetPrefix: 10.20.2.0/24    # default: the spoke's .2.0/24
+# firewallPrivateIp: 10.0.0.4     # your Azure Firewall private IP
+# appGatewaySubnetCidr: 10.0.1.0/24 # your App Gateway subnet
 
 # Private DNS: proxy = hub DNS proxy resolves privatelink.*, link = link the zones to the spoke
 dnsMode: proxy
+# The zone IDs can be left out when the zone exists exactly once in the subscriptions you can see.
 dnsServers:
   - 10.0.0.4
 privateDnsZone_blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
@@ -53,10 +60,21 @@ blobPublicBaseUrl: https://ingestro.company.local/blob
 # blobClientCidrs:          # with blobAccess: direct
 #   - 10.10.0.0/16
 
-# Mapping module (Azure OpenAI)
+# Mapping module (AI): AZURE (Azure OpenAI) | BEDROCK (AWS Bedrock)
+mappingLlmProvider: AZURE
 mappingAzureOpenaiEndpoint: https://<resource>.openai.azure.com
 mappingAzureOpenaiDeploymentName: gpt-4o-mini
 mappingAzureOpenaiApiKey: env:AZURE_OPENAI_API_KEY
+# With mappingLlmProvider: BEDROCK instead:
+# mappingAwsBedrockRegion: eu-central-1
+# mappingAwsBedrockModelId: anthropic.claude-3-haiku-20240307-v1:0
+# mappingAwsBedrockAccessKeyId: env:AWS_ACCESS_KEY_ID
+# mappingAwsBedrockSecretAccessKey: env:AWS_SECRET_ACCESS_KEY
 
-# Database
-mongoConnectionString: env:MONGO_CONNECTION_STRING
+# Database: atlas | testhub (hubMode: test only) | other
+databaseMode: atlas
+atlasPrivateLinkServiceId: /subscriptions/<atlas-sub>/resourceGroups/<atlas-rg>/providers/Microsoft.Network/privateLinkServices/<pls>
+# Atlas runs in two rounds. The first run deploys the Private Endpoint and stops with exit code 3,
+# printing its ID and IP: register them in Atlas, then set the private connection string
+# (host with -pl-) and run again.
+# mongoConnectionString: env:MONGO_CONNECTION_STRING
