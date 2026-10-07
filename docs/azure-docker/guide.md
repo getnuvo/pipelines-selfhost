@@ -148,9 +148,24 @@ After the first `pulumi up`, take the values from `pulumi stack output azureDock
 3. **Embeddables:** set `baseUrl` to the App Gateway host only, e.g. `https://ingestro.company.local`.
    - Set the same value as `apiBaseUrl` and run `pulumi up` to publish it as `pulumi stack output endpoint`. Without it, `endpoint` stays empty, because the Function App URL is private.
    - Don't add `/dp`. The SDK appends `/dp/api/v1` itself, so `.../dp` ends in 404s on `/dp/dp/...`.
+   - Use the Function App (through the App Gateway), not `mappingAppHostname`. The mapping module is called by DP only.
 4. **Access tokens:** your backend requests them from `https://<your-app-gateway-host>/dp/api/v1/access/token` with the license key of that environment. Self-host forwards the request to Ingestro Cloud.
 
+5. **Verify** from a host inside the network (e.g. a jump host in a peered subnet):
+   - `curl https://<functionAppHostname>/dp/api/v1/management/health` returns `{"data":{"message":"OK"}}`.
+   - `functionAppHostname`, `<storageAccountName>.blob.core.windows.net` and `<keyVaultName>.vault.azure.net` resolve to `10.x` addresses (the Private Endpoint IPs).
+   - From outside the network, the same URL returns 403.
+
 Repeat with a `<customer>-prod` stack and the prod license key.
+
+## Teardown
+
+```bash
+pulumi destroy
+```
+
+- Key Vault secrets are removed together with the vault (Pulumi does not delete them one by one, because the vault's data plane is private). The vault stays soft-deleted for 90 days; its name has a random suffix, so a new deployment does not collide with it.
+- In Atlas, remove the Private Endpoint from the endpoint service. The cluster itself is yours to keep or delete.
 
 ## Firewall rules
 
@@ -190,9 +205,12 @@ Kudu and Log stream are not reachable with public access disabled. Read the cont
 az rest --method post --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<resourceGroupName>/providers/Microsoft.Web/sites/<functionAppName>/containerlogs?api-version=2023-12-01"
 ```
 
-| Symptom                                                                  | Cause and fix                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App returns 503; container log shows `ImagePullFailure` after ~3 minutes | The spoke cannot reach the registry. Allow the Docker Hub FQDNs (see [Egress allow-list](#firewall-rules)) on the firewall, check the UDR next hop and that the firewall accepts traffic from the spoke, then `az functionapp restart`. |
-| `ImagePullFailure` right away (unauthorized)                             | Registry credentials. Check that `DOCKER_REGISTRY_SERVER_PASSWORD` shows **Resolved** under the app's Key Vault references, and that the license key is valid for the environment.                                                      |
-| Browser shows a CORS error on API calls                                  | Usually the browser reached the public endpoint (403 without CORS headers) instead of the App Gateway / Private Endpoint. The API itself allows any origin.                                                                             |
-| CORS error on file uploads/downloads                                     | Add the app's origin to `allowedOrigins` (Blob CORS). The Ingestro dashboards are allowed by default.                                                                                                                                   |
+| Symptom                                                                  | Cause and fix                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App returns 503; container log shows `ImagePullFailure` after ~3 minutes | The spoke cannot reach the registry. Allow the Docker Hub FQDNs (see [Egress allow-list](#firewall-rules)) on the firewall, check the UDR next hop and that the firewall accepts traffic from the spoke, then `az functionapp restart`.                                                                                                                                                                                           |
+| `ImagePullFailure` right away (unauthorized)                             | Registry credentials. Check that `DOCKER_REGISTRY_SERVER_PASSWORD` shows **Resolved** under the app's Key Vault references, and that the license key is valid for the environment.                                                                                                                                                                                                                                                |
+| Browser shows a CORS error on API calls                                  | Usually the browser reached the public endpoint (403 without CORS headers) instead of the App Gateway / Private Endpoint. The API itself allows any origin.                                                                                                                                                                                                                                                                       |
+| CORS error on file uploads/downloads                                     | Add the app's origin to `allowedOrigins` (Blob CORS). The Ingestro dashboards are allowed by default.                                                                                                                                                                                                                                                                                                                             |
+| CORS preflight returns 404 on `/api/v1/...` (no `/dp`)                   | `baseUrl` points to the mapping app or another host. Use the App Gateway host that routes `/dp/*` to the Function App.                                                                                                                                                                                                                                                                                                            |
+| A secret changed in Key Vault outside Pulumi is not picked up            | App Service caches Key Vault references. Change secrets through `pulumi config set --secret` + `pulumi up` (the apps reference the exact version), or force a refresh: `az rest --method post --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<resourceGroupName>/providers/Microsoft.Web/sites/<app>/config/configreferences/appsettings/refresh?api-version=2022-03-01"`. A restart alone is not enough. |
+| Atlas connection times out                                               | The Atlas endpoint is not **Available** yet, or a rule blocks ports 1024+ between the app subnet and the endpoint subnet (see [MongoDB Atlas](#mongodb-atlas) step 5).                                                                                                                                                                                                                                                            |
