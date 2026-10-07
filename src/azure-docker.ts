@@ -462,6 +462,16 @@ export const run = () => {
         env: 'MAPPING_AZURE_OPENAI_API_KEY',
         value: config.getSecret('mappingAzureOpenaiApiKey'),
       },
+      {
+        file: 'mapping',
+        env: 'MAPPING_AWS_BEDROCK_ACCESS_KEY_ID',
+        value: config.getSecret('mappingAwsBedrockAccessKeyId'),
+      },
+      {
+        file: 'mapping',
+        env: 'MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY',
+        value: config.getSecret('mappingAwsBedrockSecretAccessKey'),
+      },
     ] as (Omit<SecretEntry, 'value'> & { value?: pulumi.Input<string> })[]
   ).filter((entry): entry is SecretEntry => entry.value !== undefined);
 
@@ -533,6 +543,9 @@ export const run = () => {
         config.get('mappingAzureOpenaiApiVersion') || '2024-10-21',
       MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME:
         config.get('mappingAzureOpenaiDeploymentName') || 'gpt-4o-mini',
+      // mappingLlmProvider: BEDROCK (AWS Bedrock instead of Azure OpenAI)
+      MAPPING_AWS_BEDROCK_MODEL_ID: config.get('mappingAwsBedrockModelId'),
+      MAPPING_AWS_BEDROCK_REGION: config.get('mappingAwsBedrockRegion'),
       MAPPING_STORAGE_PROVIDER: 'AZURE_BLOB',
       MAPPING_AZURE_BLOB_ACCOUNT_NAME: accountName,
       MAPPING_AZURE_BLOB_CONTAINER_NAME: containerName,
@@ -553,6 +566,9 @@ export const run = () => {
   const commonOutputs = {
     healthProbePath: HEALTH_PROBE_PATH,
     resourceGroupName,
+    // For the hub side: peering hub <-> spoke and firewall rules for the spoke range.
+    spokeVnetId: vnet.id,
+    spokeAddressSpace,
     keyVaultName: vault.name,
     storageAccountName: storageAccount.name,
     blobPrivateEndpointIp: privateEndpointIp(blobPe.pe),

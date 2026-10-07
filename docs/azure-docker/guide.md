@@ -9,6 +9,32 @@
 
 Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure Functions deployment.
 
+## Quick start
+
+Check the [Prerequisites](#prerequisites) and [MongoDB Atlas](#mongodb-atlas) requirements first, then:
+
+```bash
+git clone https://github.com/getnuvo/pipelines-selfhost.git && cd pipelines-selfhost
+./deploy.sh
+```
+
+`deploy.sh` checks the tools (Node.js 20+, Pulumi, Azure CLI) and offers to install what is missing, installs the npm dependencies, and starts a wizard that asks for every setting, validates it (CIDRs, resource IDs, license key), shows a review and a preview, and deploys. It finds the Azure regions and the Private DNS zones in your subscriptions, so you pick them from a list. With a local Pulumi backend it asks for a key file (it can generate one) or a passphrase to encrypt the stack secrets. Re-run it any time: answers already in the stack become the defaults.
+
+The wizard asks whether to use **your existing hub** or to **create a test hub**:
+
+- **Existing hub:** you enter the firewall IP, App Gateway subnet and Private DNS zones. After the deployment it prints what the network admin sets up: the peering (spoke VNet ID and address space), firewall rules, DNS and the App Gateway.
+- **Test hub** (testing only): it also deploys [`test/azure-docker-hub`](../../test/azure-docker-hub/index.ts), with an NVA instead of Azure Firewall, the six Private DNS zones and a jump VM (SSH from your IP, test MongoDB), peers it with the spoke, and prints the SSH tunnel to reach the API. One test hub per subscription.
+
+For MongoDB Atlas the wizard runs both rounds of the [MongoDB Atlas](#mongodb-atlas) steps: it deploys the Private Endpoint, shows the ID and IP to register in Atlas, waits until Atlas approves it, asks for the private connection string and deploys again. Stop at any point and run `./deploy.sh` again to continue. With the test hub you can also pick the test MongoDB on the jump VM.
+
+Batch mode (no prompts, e.g. CI): copy [`deploy.answers.example.yaml`](../../deploy.answers.example.yaml) to `<stack>.answers.yaml`, keep secrets in environment variables (`env:VAR_NAME`), then:
+
+```bash
+./deploy.sh --answers acme-dev.answers.yaml --yes
+```
+
+`./deploy.sh --help` lists the options (`--preview-only`, `--stack`). The sections below describe the same steps by hand.
+
 ## What gets deployed (per environment)
 
 ```
@@ -181,14 +207,15 @@ The Private Endpoint subnet NSG allows the spoke and `appGatewaySubnetCidr` (443
 
 **Egress allow-list (from the spoke)**
 
-| FQDN                                                                         | Why                                                  |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `api-gateway.ingestro.com`                                                   | License verification on every execution              |
-| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | Image pulls (not needed with ACR + Private Endpoint) |
-| Azure OpenAI endpoint (or its Private Endpoint)                              | Mapping module LLM                                   |
-| `*.pusher.com`, `*.pusherapp.com`                                            | Realtime updates, only if `PUSHER_*` is set          |
-| `api.brevo.com`                                                              | Email notifications, only if `BREVO_API_KEY` is set  |
-| Your data sources / destinations                                             | Pipeline input and output connectors                 |
+| FQDN                                                                         | Why                                                         |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `api-gateway.ingestro.com`                                                   | License verification on every execution                     |
+| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | Image pulls (not needed with ACR + Private Endpoint)        |
+| Azure OpenAI endpoint (or its Private Endpoint)                              | Mapping module LLM                                          |
+| `bedrock-runtime.<region>.amazonaws.com`                                     | Mapping module LLM, only with `mappingLlmProvider: BEDROCK` |
+| `*.pusher.com`, `*.pusherapp.com`                                            | Realtime updates, only if `PUSHER_*` is set                 |
+| `api.brevo.com`                                                              | Email notifications, only if `BREVO_API_KEY` is set         |
+| Your data sources / destinations                                             | Pipeline input and output connectors                        |
 
 In the minimal setup (ACR and Azure OpenAI through Private Endpoints, no Pusher or Brevo), the only egress to the internet is `api-gateway.ingestro.com` for license verification. Ingestro does not collect telemetry from self-hosted deployments.
 
