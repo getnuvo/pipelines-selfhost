@@ -1,0 +1,62 @@
+# Answers for batch mode: ./deploy.sh --answers acme-dev.answers.yaml --yes
+# Copy this file per environment as <stack>.answers.yaml (git-ignored). Every key matches a wizard question; see docs/azure-docker/guide.md.
+# Secrets: write env:VAR_NAME and export the variable, so the secret never sits in this file.
+# Local Pulumi backend: also export PULUMI_CONFIG_PASSPHRASE (or PULUMI_CONFIG_PASSPHRASE_FILE).
+# Values already in the stack config are kept when a key is left out here.
+
+stackName: acme-dev
+# subscriptionId: 00000000-0000-0000-0000-000000000000   # default: current `az account`
+
+# Stack
+prefix: ingestro
+environment: dev # part of resource names; prefix + environment must stay short
+location: germanywestcentral
+
+# Release
+version: '1.0.0' # ingestro/pipelines:<version>
+mappingVersion: '<mapping-tag>' # pin a concrete tag
+
+# License (checked against Ingestro before anything is deployed)
+licenseKey: env:INGESTRO_LICENSE_KEY
+
+# App Service plans (the subscription needs App Service quota for these)
+functionPlanSku: EP1 # EP1 | EP2 | EP3
+functionMaxInstances: 3
+mappingPlanSku: P1v3
+
+# Spoke network (must not overlap the hub, AVD or other spokes)
+spokeAddressSpace: 10.20.0.0/16
+appSubnetPrefix: 10.20.1.0/24
+peSubnetPrefix: 10.20.2.0/24
+
+# Hub network (yours)
+firewallPrivateIp: 10.0.0.4
+appGatewaySubnetCidr: 10.0.1.0/24
+
+# Private DNS: proxy = hub DNS proxy resolves privatelink.*, link = link the zones to the spoke
+dnsMode: proxy
+dnsServers:
+  - 10.0.0.4
+privateDnsZone_blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
+privateDnsZone_file: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net
+privateDnsZone_queue: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net
+privateDnsZone_table: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net
+privateDnsZone_vault: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net
+privateDnsZone_sites: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net
+
+# Access
+apiBaseUrl: https://ingestro.company.local # App Gateway host, used as the embeddables baseUrl
+allowedOrigins:
+  - https://app.company.local
+blobAccess: proxy # proxy = App Gateway /blob/* rule, direct = browser subnets reach the Blob endpoint
+blobPublicBaseUrl: https://ingestro.company.local/blob
+# blobClientCidrs:          # with blobAccess: direct
+#   - 10.10.0.0/16
+
+# Mapping module (Azure OpenAI)
+mappingAzureOpenaiEndpoint: https://<resource>.openai.azure.com
+mappingAzureOpenaiDeploymentName: gpt-4o-mini
+mappingAzureOpenaiApiKey: env:AZURE_OPENAI_API_KEY
+
+# Database
+mongoConnectionString: env:MONGO_CONNECTION_STRING

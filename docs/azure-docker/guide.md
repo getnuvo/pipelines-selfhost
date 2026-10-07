@@ -9,6 +9,25 @@
 
 Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure Functions deployment.
 
+## Quick start
+
+Check the [Prerequisites](#prerequisites) and [MongoDB Atlas](#mongodb-atlas) requirements first, then:
+
+```bash
+git clone https://github.com/getnuvo/pipelines-selfhost.git && cd pipelines-selfhost
+./deploy.sh
+```
+
+`deploy.sh` checks the tools (Node.js 20+, Pulumi, Azure CLI) and offers to install what is missing, installs the npm dependencies, and starts a wizard that asks for every setting, validates it (CIDRs, resource IDs, license key), shows a review and a preview, and deploys. Re-run it any time: answers already in the stack become the defaults.
+
+Batch mode (no prompts, e.g. CI): copy [`deploy.answers.example.yaml`](../../deploy.answers.example.yaml) to `<stack>.answers.yaml`, keep secrets in environment variables (`env:VAR_NAME`), then:
+
+```bash
+./deploy.sh --answers acme-dev.answers.yaml --yes
+```
+
+`./deploy.sh --help` lists the options (`--preview-only`, `--stack`). The sections below describe the same steps by hand.
+
 ## What gets deployed (per environment)
 
 ```
