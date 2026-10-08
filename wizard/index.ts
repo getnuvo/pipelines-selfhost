@@ -12,6 +12,7 @@ import {
   type Answers,
 } from './questions';
 import * as atlas from './atlas';
+import { destroyDeployment } from './destroy';
 import * as hub from './hub';
 import {
   ensurePassphrase,
@@ -35,35 +36,52 @@ import {
 } from './ui';
 import { stackName as validStackName } from './validate';
 
-const USAGE = `Usage: ./deploy.sh [options]
+const USAGE = `Usage: ./deploy.sh [destroy] [options]
 
 Deploys Ingestro Pipelines on Azure (private network, provider azure-docker).
 Re-running is safe: answers already in the stack config become the defaults.
 
+Commands:
+  (none)             Deploy or update a stack (wizard)
+  destroy            Delete a stack's resources (and the test hub, if it uses one)
+
 Options:
   --answers <file>   Batch mode: take every answer from a YAML file, no prompts
                      (see deploy.answers.example.yaml). Secrets can be env:VAR_NAME.
+  --stack <name>     Stack to use (otherwise asked, or stackName in the answers file)
+  --preview-only     Write the config and run a preview, but deploy nothing
+  --yes              No confirmations (required to deploy in batch mode; destroy
+                     with --stack runs without prompts)
+  --keep-hub         destroy: keep the test hub
+  -h, --help         Show this help
 
 With a local Pulumi backend, stack secrets are encrypted with a key file or a
-passphrase: the wizard asks which (or set PULUMI_CONFIG_PASSPHRASE_FILE /
-PULUMI_CONFIG_PASSPHRASE, or pulumiPassphraseFile in the answers file).
-  --stack <name>     Stack to deploy (otherwise asked, or stackName in the answers file)
-  --preview-only     Write the config and run a preview, but deploy nothing
-  --yes              Deploy without the final confirmation (required in batch mode)
-  -h, --help         Show this help`;
+passphrase: the wizard asks which and remembers the key file per stack (or set
+PULUMI_CONFIG_PASSPHRASE_FILE / PULUMI_CONFIG_PASSPHRASE, or pulumiPassphraseFile
+in the answers file).`;
+
+const COMMANDS = ['deploy', 'destroy'];
 
 const parse = () => {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
     options: {
       answers: { type: 'string' },
       stack: { type: 'string' },
       'preview-only': { type: 'boolean', default: false },
       yes: { type: 'boolean', default: false },
+      'keep-hub': { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
   });
+  const command = positionals[0] ?? 'deploy';
+  if (!COMMANDS.includes(command) || positionals.length > 1)
+    throw new WizardError(
+      `Unknown command: ${positionals.join(' ')}\n\n${USAGE}`,
+      2,
+    );
 
-  return values;
+  return { ...values, command };
 };
 
 const chooseSubscription = async (batch: boolean, wanted?: string) => {
@@ -122,7 +140,11 @@ const checkProviders = async (subscriptionId: string, batch: boolean) => {
   ok('Resource providers registered');
 };
 
-const chooseStack = async (batch: boolean, wanted?: string) => {
+const chooseStack = async (
+  batch: boolean,
+  wanted?: string,
+  allowNew = true,
+) => {
   if (wanted) {
     const error = validStackName(wanted);
     if (error) throw new WizardError(`stackName: ${error}`, 2);
@@ -139,7 +161,7 @@ const chooseStack = async (batch: boolean, wanted?: string) => {
     message: 'Stack (one per environment, e.g. acme-dev / acme-prod)',
     choices: [
       ...existing.map((name) => ({ value: name, name })),
-      { value: '', name: 'Create a new stack' },
+      ...(allowNew ? [{ value: '', name: 'Create a new stack' }] : []),
     ],
   });
   if (choice) return choice;
@@ -338,36 +360,26 @@ const testHubSteps = (
   );
 };
 
-const main = async () => {
-  const args = parse();
-  if (args.help) return info(USAGE);
-  const batch = args.answers !== undefined;
-  const file = batch ? loadAnswers(args.answers!) : {};
-
-  await initTheme();
-  banner('Pipelines self-host · Azure private network');
-  heading('Preflight');
-  const subscription = await chooseSubscription(
-    batch,
-    file['subscriptionId'] as string | undefined,
-  );
-  ok(
-    `Azure: ${subscription.user?.name ?? 'logged in'}, subscription ${subscription.name}`,
-  );
-  await checkProviders(subscription.id, batch);
-  const whoami = await pulumi.backend();
-  ok(`Pulumi: ${whoami.user} @ ${whoami.url ?? 'backend'}`);
-  const stackName = await chooseStack(
-    batch,
-    args.stack ?? (file['stackName'] as string | undefined),
-  );
-  const found = await pulumi.findStack(stackName);
+/** Unlock the stack's secrets (remembered key file, or ask, with retry) and read its config. */
+const unlockStack = async ({
+  stackName,
+  found,
+  backendUrl,
+  batch,
+  keyFileAnswer,
+}: {
+  stackName: string;
+  found: Awaited<ReturnType<typeof pulumi.findStack>>;
+  backendUrl: string | undefined;
+  batch: boolean;
+  keyFileAnswer?: string;
+}) => {
   const passphrase = {
-    backendUrl: whoami.url,
+    backendUrl,
     batch,
     stackName,
     existingStack: found !== undefined,
-    keyFileAnswer: file['pulumiPassphraseFile'] as string | undefined,
+    keyFileAnswer,
     rememberedKeyFile: rememberedKeyFile(stackName),
   };
   const source = await ensurePassphrase(passphrase);
@@ -389,6 +401,77 @@ const main = async () => {
     `Stack ${stackName}${found ? ' (existing config loaded)' : ' (new, created after the review)'}`,
   );
   rememberKeyFile(stackName);
+
+  return existing;
+};
+
+const destroyCommand = async (args: ReturnType<typeof parse>) => {
+  // --yes with --stack: no prompts at all.
+  const batch = args.yes && args.stack !== undefined;
+  heading('Preflight');
+  const account = await azure.currentAccount();
+  ok(
+    `Azure: ${account.user?.name ?? 'logged in'}, subscription ${account.name}`,
+  );
+  const whoami = await pulumi.backend();
+  ok(`Pulumi: ${whoami.user} @ ${whoami.url ?? 'backend'}`);
+  const stackName = await chooseStack(batch, args.stack, false);
+  const found = await pulumi.findStack(stackName);
+  if (!found) throw new WizardError(`Stack ${stackName} does not exist.`, 2);
+  const config = await unlockStack({
+    stackName,
+    found,
+    backendUrl: whoami.url,
+    batch,
+  });
+  await destroyDeployment({
+    stack: found,
+    stackName,
+    config,
+    batch,
+    yes: args.yes ?? false,
+    keepHub: args['keep-hub'] ?? false,
+  });
+  info(`\n${green('Done.')}`);
+};
+
+const main = async () => {
+  const args = parse();
+  if (args.help) return info(USAGE);
+  if (args.command === 'destroy') {
+    await initTheme();
+    banner('Pipelines self-host · Azure private network');
+
+    return destroyCommand(args);
+  }
+  const batch = args.answers !== undefined;
+  const file = batch ? loadAnswers(args.answers!) : {};
+
+  await initTheme();
+  banner('Pipelines self-host · Azure private network');
+  heading('Preflight');
+  const subscription = await chooseSubscription(
+    batch,
+    file['subscriptionId'] as string | undefined,
+  );
+  ok(
+    `Azure: ${subscription.user?.name ?? 'logged in'}, subscription ${subscription.name}`,
+  );
+  await checkProviders(subscription.id, batch);
+  const whoami = await pulumi.backend();
+  ok(`Pulumi: ${whoami.user} @ ${whoami.url ?? 'backend'}`);
+  const stackName = await chooseStack(
+    batch,
+    args.stack ?? (file['stackName'] as string | undefined),
+  );
+  const found = await pulumi.findStack(stackName);
+  const existing = await unlockStack({
+    stackName,
+    found,
+    backendUrl: whoami.url,
+    batch,
+    keyFileAnswer: file['pulumiPassphraseFile'] as string | undefined,
+  });
 
   const discovery = azure.discovery(
     (await azure.subscriptions(subscription.tenantId)).map((sub) => sub.id),

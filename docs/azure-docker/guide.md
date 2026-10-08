@@ -187,11 +187,14 @@ Repeat with a `<customer>-prod` stack and the prod license key.
 ## Teardown
 
 ```bash
-pulumi destroy
+./deploy.sh destroy            # asks for the stack, shows what goes, confirm by typing its name
+./deploy.sh destroy --stack acme-dev --yes   # no prompts
 ```
 
+It also removes the test hub when the stack uses one (`--keep-hub` keeps it), and retries the transient errors Azure returns while it removes dependent resources. `pulumi destroy` works too.
+
 - Key Vault secrets are removed together with the vault (Pulumi does not delete them one by one, because the vault's data plane is private). The vault stays soft-deleted for 90 days; its name has a random suffix, so a new deployment does not collide with it.
-- In Atlas, remove the Private Endpoint from the endpoint service. The cluster itself is yours to keep or delete.
+- MongoDB Atlas: `./deploy.sh destroy` can also remove the Private Endpoint from the Atlas endpoint service with an Atlas service account (Organization > Access Manager > Service Accounts, Project Owner on the project; in batch mode set `ATLAS_CLIENT_ID` / `ATLAS_CLIENT_SECRET`). Otherwise remove it in the Atlas UI. The endpoint service and the cluster stay; they are yours to keep or delete.
 
 ## Firewall rules
 
