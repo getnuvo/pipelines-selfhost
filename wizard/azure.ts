@@ -107,7 +107,11 @@ const perSubscription = async <T>(
   ).flat();
 
 /** Looks across every enabled subscription in the tenant; the hub is often in another one. */
-export const discovery = (subscriptionIds: string[]) => {
+export const discovery = (
+  subscriptionIds: string[],
+  /** The spoke's subscription: regions are listed for it. */
+  subscriptionId = subscriptionIds[0],
+) => {
   let zones: Promise<FoundResource[]> | undefined;
   let regions: Promise<Region[]> | undefined;
 
@@ -116,6 +120,8 @@ export const discovery = (subscriptionIds: string[]) => {
       (regions ??= az<Region[]>(
         'account',
         'list-locations',
+        '--subscription',
+        subscriptionId,
         '--query',
         "[?metadata.regionType=='Physical'].{name: name, displayName: displayName, geography: metadata.geographyGroup}",
       ).then((list) =>

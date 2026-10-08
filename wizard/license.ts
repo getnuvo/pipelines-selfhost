@@ -1,5 +1,11 @@
 export const LIVE_SELF_HOST_URL =
   'https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment';
+export const DEVELOP_SELF_HOST_URL =
+  'https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment';
+
+/** dev-* images verify licenses against Ingestro's develop environment, releases against live. */
+export const selfHostUrlFor = (version: string) =>
+  version.startsWith('dev-') ? DEVELOP_SELF_HOST_URL : LIVE_SELF_HOST_URL;
 
 /**
  * Same call `pulumi up` makes (src/utils/ingestro.ts), done up front so a wrong key or
@@ -23,7 +29,9 @@ export const checkLicense = async (
       signal: AbortSignal.timeout(20_000),
     });
   } catch (err) {
-    return `Could not reach ${new URL(url).host} (${(err as Error).message}). The deployer machine needs outbound HTTPS to it.`;
+    const host = URL.canParse(url) ? new URL(url).host : url;
+
+    return `Could not reach ${host} (${(err as Error).message}). The deployer machine needs outbound HTTPS to it.`;
   }
   if (response.ok) {
     const body = (await response.json().catch(() => ({}))) as {

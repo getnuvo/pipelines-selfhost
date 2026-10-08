@@ -115,7 +115,8 @@ export const up = (stack: Stack): Promise<OutputMap> =>
 
 /** The deployed spoke VNet ID, when the stack has been deployed with that output. */
 export const spokeVnetId = async (stack: Stack) => {
-  const outputs = await stack.outputs().catch(() => ({}) as OutputMap);
+  // A never-deployed stack has no outputs; any other failure must not look like one.
+  const outputs = await stack.outputs();
   const docker = outputs['azureDocker']?.value as
     | { spokeVnetId?: string }
     | undefined;

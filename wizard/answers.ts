@@ -41,7 +41,9 @@ export const loadAnswers = (file: string): Answers => {
     }
     if (value === null || value === undefined) continue;
     let answer: Answer | undefined;
-    if (Array.isArray(value)) {
+    if (Array.isArray(value) && META_KEYS.includes(key)) {
+      errors.push(`${key}: expected a single value.`);
+    } else if (Array.isArray(value)) {
       answer = value
         .map((item) => resolve(String(item), key, errors))
         .filter((item): item is string => item !== undefined);

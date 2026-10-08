@@ -22,7 +22,7 @@ export const endpointState = (endpointId: string) =>
     endpointId,
     '--query',
     'manualPrivateLinkServiceConnections[0].privateLinkServiceConnectionState.status',
-  ).catch(() => 'Unknown');
+  );
 
 /** Names Atlas asks for on "Create Endpoint", read from the endpoint's subnet. */
 const endpointNames = async (endpointId: string) => {

@@ -6,7 +6,7 @@
 stackName: acme-dev
 # subscriptionId: 00000000-0000-0000-0000-000000000000   # default: current `az account`
 # Local Pulumi backend only: key file that encrypts the stack secrets (or export PULUMI_CONFIG_PASSPHRASE)
-pulumiPassphraseFile: ~/.pulumi/ingestro.passphrase
+pulumiPassphraseFile: ~/.pulumi/ingestro.passphrase # must exist: create it once (e.g. with the interactive wizard), or export PULUMI_CONFIG_PASSPHRASE
 
 # Stack
 prefix: ingestro

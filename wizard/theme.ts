@@ -9,9 +9,19 @@ const hexToRgb = (hex: string): Rgb => [
   parseInt(hex.slice(5, 7), 16),
 ];
 
-/** Relative luminance, 0 (black) to 1 (white). */
-export const luminance = ([r, g, b]: Rgb) =>
-  (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+/** WCAG relative luminance, 0 (black) to 1 (white), from linearised sRGB channels. */
+export const luminance = (rgb: Rgb) => {
+  const [r, g, b] = rgb.map((channel) => {
+    const c = channel / 255;
+
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** Above this, black text contrasts better than white (WCAG): a light background. */
+const LIGHT_THRESHOLD = 0.179;
 
 /** OSC 11 reply, e.g. `\x1b]11;rgb:1e1e/1e1e/1e1e\x07`; channels may have 1–4 hex digits. */
 export const parseOsc11 = (reply: string): Rgb | undefined => {
@@ -64,7 +74,7 @@ const queryBackground = (timeoutMs = 200) =>
 /** Dark unless the terminal says otherwise: most developer terminals are dark. */
 export const detectDarkBackground = async () => {
   const rgb = await queryBackground();
-  if (rgb) return luminance(rgb) < 0.5;
+  if (rgb) return luminance(rgb) < LIGHT_THRESHOLD;
 
   return darkFromColorFgBg(process.env['COLORFGBG']) ?? true;
 };

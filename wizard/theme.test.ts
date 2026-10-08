@@ -13,8 +13,8 @@ describe('background detection', () => {
   });
 
   it('treats a low luminance background as dark', () => {
-    assert.ok(luminance([30, 30, 30]) < 0.5);
-    assert.ok(luminance([250, 250, 250]) >= 0.5);
+    assert.ok(luminance([30, 30, 30]) < 0.179);
+    assert.ok(luminance([250, 250, 250]) >= 0.179);
   });
 
   it('reads COLORFGBG', () => {
@@ -33,7 +33,7 @@ describe('background detection', () => {
       ];
     assert.ok(luminance(rgb(BRAND.light)) < 0.25, 'navy for light backgrounds');
     assert.ok(
-      luminance(rgb(BRAND.dark)) > 0.6,
+      luminance(rgb(BRAND.dark)) > 0.4,
       'light tint for dark backgrounds',
     );
   });

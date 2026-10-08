@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
@@ -59,6 +59,7 @@ export const sshPublicKeys = () => {
 export const loadSshPublicKey = async (file: string) => {
   if (!existsSync(file) && file === `${DEFAULT_SSH_KEY}.pub`) {
     info(dim(`  generating SSH key ${DEFAULT_SSH_KEY}...`));
+    mkdirSync(sshDir, { recursive: true, mode: 0o700 });
     await run('ssh-keygen', [
       '-t',
       'ed25519',
@@ -82,6 +83,7 @@ export const loadSshPublicKey = async (file: string) => {
 const write = (text: string) => process.stdout.write(text);
 
 export const openTestHub = async (settings: {
+  subscriptionId: string;
   location: string;
   adminIp: string;
   sshPublicKey: string;
@@ -94,6 +96,8 @@ export const openTestHub = async (settings: {
     workDir: TEST_HUB.dir,
   });
   await stack.setAllConfig({
+    // Same subscription as the spoke: its zone IDs point there.
+    'azure-native:subscriptionId': { value: settings.subscriptionId },
     location: { value: settings.location },
     adminIp: { value: settings.adminIp },
     sshPublicKey: { value: settings.sshPublicKey },

@@ -11,9 +11,24 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 BATCH=0
+HELP=0
 for arg in "$@"; do
-  case "$arg" in --answers | --answers=*) BATCH=1 ;; esac
+  case "$arg" in
+    --answers | --answers=*) BATCH=1 ;;
+    -h | --help) HELP=1 ;;
+  esac
 done
+
+# Usage needs nothing installed: show the full help once the dependencies are there.
+if [ "$HELP" = 1 ] && [ ! -x node_modules/.bin/tsx ]; then
+  printf '%s\n' \
+    'Usage: ./deploy.sh [destroy] [options]' \
+    '' \
+    'Deploys Ingestro Pipelines on Azure (private network). The first run checks Node.js 20+,' \
+    'Pulumi and the Azure CLI and installs the npm dependencies; ./deploy.sh --help then lists' \
+    'every option. Guide: docs/azure-docker/guide.md'
+  exit 0
+fi
 
 say() { printf '%s\n' "$*"; }
 die() { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
@@ -59,7 +74,8 @@ lock_hash() {
 stamp=node_modules/.deploy-lock
 if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$(lock_hash)" ]; then
   say "Installing npm dependencies (npm ci)..."
-  npm ci --no-audit --no-fund
+  # --include=dev: the wizard runs on tsx, a devDependency (skipped when NODE_ENV=production).
+  npm ci --include=dev --no-audit --no-fund
   lock_hash >"$stamp"
 fi
 

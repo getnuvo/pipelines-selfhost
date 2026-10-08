@@ -28,7 +28,11 @@ export const heading = (text: string) =>
 export const info = (text: string) => console.log(text);
 export const ok = (text: string) => console.log(`${green('✓')} ${text}`);
 export const warn = (text: string) => console.log(`${yellow('!')} ${text}`);
-export const fail = (text: string) => console.error(`${red('✗')} ${text}`);
+// Errors go to stderr: colour them by stderr's terminal, not stdout's.
+export const fail = (text: string) =>
+  console.error(
+    `${process.stderr.isTTY && !process.env['NO_COLOR'] ? '\x1b[31m✗\x1b[0m' : '✗'} ${text}`,
+  );
 
 export const table = (rows: [string, string][]) => {
   const width = Math.max(...rows.map(([label]) => label.length));

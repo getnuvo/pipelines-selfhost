@@ -7,7 +7,7 @@ import {
   TEST_HUB,
   testHubZoneId,
 } from './hub';
-import { checkLicense } from './license';
+import { checkLicense, selfHostUrlFor } from './license';
 
 /** Stored until the Atlas private endpoint is registered; replaced in the second round. */
 export const ATLAS_PENDING =
@@ -16,7 +16,8 @@ export const ATLAS_PENDING =
 /** Atlas private endpoint hosts look like <cluster>-pl-0.<id>.mongodb.net. */
 export const isAtlasPrivate = (uri: unknown) =>
   typeof uri === 'string' &&
-  /^mongodb\+srv:\/\/(?:[^@/]*@)?[^/?]*-pl-\d/.test(uri);
+  // Only the host counts: `-pl-0` in a username must not make a public URI look private.
+  /^mongodb\+srv:\/\/(?:[^@/]*@)?[^/?@]*-pl-\d(?:[./?]|$)/.test(uri);
 import * as v from './validate';
 
 export type Answer = string | string[];
@@ -155,6 +156,7 @@ export const QUESTIONS: Question[] = [
     message: 'Self-host deployment API',
     hidden: true,
     optional: true,
+    default: (a) => selfHostUrlFor(String(a.version ?? '')),
     validate: () => v.httpsUrl,
   },
 

@@ -184,7 +184,13 @@ const configChanges = (
     secret = false,
   ) => {
     const current = pulumi.configValue(existing, key);
-    if (JSON.stringify(current ?? undefined) === JSON.stringify(value)) return;
+    const storedAsSecret = existing[key.split('.')[0]]?.secret ?? false;
+    // Same value is a no-op, unless a secret is still stored in plain text.
+    if (
+      JSON.stringify(current ?? undefined) === JSON.stringify(value) &&
+      (!secret || storedAsSecret)
+    )
+      return;
     changes.push({ key, value, secret });
   };
   for (const question of QUESTIONS) {
@@ -475,6 +481,7 @@ const main = async () => {
 
   const discovery = azure.discovery(
     (await azure.subscriptions(subscription.tenantId)).map((sub) => sub.id),
+    subscription.id,
   );
   const sources = {
     file,
@@ -543,6 +550,7 @@ const main = async () => {
   const hubStack =
     answers.hubMode === 'test'
       ? await hub.openTestHub({
+          subscriptionId: subscription.id,
           location: String(answers.location),
           adminIp: String(answers.adminIp),
           sshPublicKey: await hub.loadSshPublicKey(sshKeyFile),

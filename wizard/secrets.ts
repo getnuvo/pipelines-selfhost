@@ -196,8 +196,13 @@ export const ensurePassphrase = async ({
         ? `Passphrase stack ${stackName} was created with`
         : 'New passphrase (keep it: every later run needs it)',
       mask: '*',
+      // An existing stack's passphrase is whatever it was created with.
       validate: (text) =>
-        text.length >= 8 ? true : 'Use at least 8 characters.',
+        text.length >= (existingStack ? 1 : 8)
+          ? true
+          : existingStack
+            ? 'Required.'
+            : 'Use at least 8 characters.',
     });
     ok('Stack secrets: typed passphrase');
 

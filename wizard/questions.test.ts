@@ -195,6 +195,11 @@ describe('database', () => {
       false,
     );
     assert.equal(isAtlasPrivate('mongodb://10.29.2.4:27017'), false);
+    // `-pl-0` in the username must not count.
+    assert.equal(
+      isAtlasPrivate('mongodb+srv://user-pl-0:pw@cluster.abc.mongodb.net/'),
+      false,
+    );
   });
 
   it('offers the jump VM database only with the test hub', () => {
@@ -245,6 +250,20 @@ describe('database', () => {
     assert.equal(
       fromConfig(read({ MONGO_CONNECTION_STRING: 'mongodb://db:27017' })),
       'other',
+    );
+  });
+});
+
+describe('self-host deployment API', () => {
+  it('follows the image: dev-* uses develop, releases use live', () => {
+    const url = question('selfHostDeploymentUrl');
+    assert.match(
+      String(url.default!({ version: 'dev-0.147.0' })),
+      /api-gateway-develop/,
+    );
+    assert.match(
+      String(url.default!({ version: '0.147.0' })),
+      /\/\/api-gateway\./,
     );
   });
 });

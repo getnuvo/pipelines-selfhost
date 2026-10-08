@@ -709,8 +709,15 @@ export const run = () => {
   const functionUrl = pulumi.interpolate`https://${functionApp.defaultHostName}`;
   const mappingUrl = pulumi.interpolate`https://${mappingApp.defaultHostName}`;
 
-  // Applied after the role assignments, so Key Vault references resolve on the first start.
-  const settingsDependsOn = [...roles, ...networkReady];
+  // Applied after the role assignments, so Key Vault references resolve on the first start,
+  // and after the apps' own Private Endpoint records: DP calls itself and the mapping app by
+  // these host names (AZURE_FUNCTION_BASE_URL, MAPPING_BASE_URL).
+  const settingsDependsOn = [
+    ...roles,
+    ...networkReady,
+    functionPe.dns,
+    mappingPe.dns,
+  ];
   new web.WebAppApplicationSettings(
     name('func-settings'),
     {

@@ -59,6 +59,18 @@ const allowSshFromAdmin = {
   destinationPortRange: '22',
 };
 
+const denySshFromVnet = {
+  name: 'deny-ssh-vnet',
+  priority: 200,
+  direction: 'Inbound',
+  access: 'Deny',
+  protocol: 'Tcp',
+  sourceAddressPrefix: 'VirtualNetwork',
+  sourcePortRange: '*',
+  destinationAddressPrefix: '*',
+  destinationPortRange: '22',
+};
+
 const nvaSubnet = new network.Subnet('snet-nva', {
   resourceGroupName: rg.name,
   virtualNetworkName: vnet.name,
@@ -98,7 +110,10 @@ const adminSubnet = new network.Subnet(
     virtualNetworkName: vnet.name,
     subnetName: 'snet-admin',
     addressPrefix: '10.29.2.0/24',
-    networkSecurityGroup: { id: nsg('admin-nsg', [allowSshFromAdmin]).id },
+    // AllowVnetInBound would also let the hub and the spoke SSH in: deny that explicitly.
+    networkSecurityGroup: {
+      id: nsg('admin-nsg', [allowSshFromAdmin, denySshFromVnet]).id,
+    },
   },
   { dependsOn: [appgwSubnet] },
 );

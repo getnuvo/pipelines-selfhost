@@ -189,7 +189,7 @@ const ask = async (
         validate: (text) => validate(text.trim() === '' ? undefined : text),
       });
 
-      return value === '' ? undefined : value;
+      return value.trim() === '' ? undefined : value;
     }
   }
 };

@@ -119,3 +119,30 @@ describe('nthSubnet24', () => {
     assert.equal(nthSubnet24('10.20.0.0/24', 1), undefined);
   });
 });
+
+describe('cubic review cases', () => {
+  it('rejects host-less MongoDB URIs', () => {
+    assert.match(mongoUri('mongodb:///') ?? '', /mongodb/);
+    assert.match(mongoUri('mongodb+srv://user:pw@/') ?? '', /mongodb/);
+    assert.equal(
+      mongoUri('mongodb+srv://u:p%40w@c-pl-0.x.mongodb.net/?retryWrites=true'),
+      undefined,
+    );
+  });
+
+  it('rejects base URLs with a fragment, query or credentials', () => {
+    assert.match(
+      baseUrl('https://ingestro.company.local/#x') ?? '',
+      /host only/,
+    );
+    assert.match(
+      baseUrl('https://ingestro.company.local/?a=1') ?? '',
+      /host only/,
+    );
+    assert.match(
+      baseUrl('https://user@ingestro.company.local') ?? '',
+      /host only/,
+    );
+    assert.equal(baseUrl('https://ingestro.company.local/'), undefined);
+  });
+});

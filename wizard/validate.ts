@@ -129,8 +129,9 @@ export const httpsUrl: Validator = (value) => {
 export const baseUrl: Validator = (value) => {
   const error = httpsUrl(value);
   if (error) return error;
-  const { pathname, search } = new URL(value);
-  if ((pathname !== '/' && pathname !== '') || search)
+  const url = new URL(value);
+  // No path (/dp), query, fragment or credentials: the SDK appends /dp/api/v1 itself.
+  if (url.href !== `${url.origin}/`)
     return 'Use the host only (no path such as /dp).';
 
   return undefined;
@@ -162,9 +163,12 @@ export const resourceId =
   };
 
 export const mongoUri: Validator = (value) =>
-  /^mongodb(\+srv)?:\/\/\S+$/.test(value)
+  // Scheme, optional credentials, a non-empty host list, then optional path and options.
+  /^mongodb(?:\+srv)?:\/\/(?:[^@/?#\s]+@)?[^/?#\s@]+(?:\/[^?#\s]*)?(?:\?[^#\s]*)?$/.test(
+    value,
+  )
     ? undefined
-    : 'Expected mongodb:// or mongodb+srv://...';
+    : 'Expected mongodb://host... or mongodb+srv://host...';
 
 // Storage account and Key Vault names are built from prefix + environment (see src/azure-docker.ts).
 export const azureNameParts = (prefix: string, environment: string) => {
