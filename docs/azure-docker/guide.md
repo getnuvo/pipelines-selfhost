@@ -2,44 +2,36 @@
 
 `provider: azure-docker` deploys the Ingestro Pipelines backend inside a **private spoke VNet**:
 
-- DP runs on an **Azure Function App (Linux custom container)**.
-- The mapping module runs on a Web App.
-- Both are reachable only through Private Endpoints. Nothing gets a public IP and every PaaS resource has public access disabled.
-- Users reach the API through your App Gateway, and all egress goes through your Azure Firewall.
+- DP runs on an **Azure Function App (Linux custom container)**; the mapping module runs on a Web App.
+- Both apps are reachable only through Private Endpoints. Nothing gets a public IP; public network access is disabled on the apps, the Storage account and the Key Vault.
+- Users reach the API through your App Gateway, and all egress from the apps goes through your Azure Firewall.
 
-Use [`provider: azure`](../azure/guide.md) instead if you want the public Azure Functions deployment.
+A wizard, `./deploy.sh`, deploys and updates it, can create a **test hub** for evaluation, walks through the MongoDB Atlas Private Endpoint, and removes everything again.
 
-## Quick start
+Use [`provider: azure`](../azure/guide.md) instead for the public Azure Functions deployment.
 
-Check the [Prerequisites](#prerequisites) and [MongoDB Atlas](#mongodb-atlas) requirements first, then:
+**Contents**
 
-```bash
-git clone https://github.com/getnuvo/pipelines-selfhost.git && cd pipelines-selfhost
-./deploy.sh
-```
+1. [What gets deployed](#1-what-gets-deployed)
+2. [Before you start](#2-before-you-start)
+3. [Deploy with the wizard](#3-deploy-with-the-wizard)
+4. [Try it with the test hub](#4-try-it-with-the-test-hub)
+5. [MongoDB Atlas](#5-mongodb-atlas)
+6. [Hand-over to the network admin](#6-hand-over-to-the-network-admin)
+7. [Verify](#7-verify)
+8. [Operations](#8-operations)
+9. [Teardown](#9-teardown)
+10. [Batch mode](#10-batch-mode)
+11. [Without the wizard](#11-without-the-wizard)
+12. [Troubleshooting](#12-troubleshooting)
 
-`deploy.sh` checks the tools (Node.js 20+, Pulumi, Azure CLI) and offers to install what is missing, installs the npm dependencies, and starts a wizard that asks for every setting, validates it (CIDRs, resource IDs, license key), shows a review and a preview, and deploys. It finds the Azure regions and the Private DNS zones in your subscriptions, so you pick them from a list. With a local Pulumi backend it asks for a key file (it can generate one) or a passphrase to encrypt the stack secrets. Re-run it any time: answers already in the stack become the defaults.
+## 1. What gets deployed
 
-The wizard asks whether to use **your existing hub** or to **create a test hub**:
-
-- **Existing hub:** you enter the firewall IP, App Gateway subnet and Private DNS zones. After the deployment it prints what the network admin sets up: the peering (spoke VNet ID and address space), firewall rules, DNS and the App Gateway.
-- **Test hub** (testing only): it also deploys [`test/azure-docker-hub`](../../test/azure-docker-hub/index.ts), with an NVA instead of Azure Firewall, the six Private DNS zones and a jump VM (SSH from your IP, test MongoDB), peers it with the spoke, and prints the SSH tunnel to reach the API. One test hub per subscription.
-
-For MongoDB Atlas the wizard runs both rounds of the [MongoDB Atlas](#mongodb-atlas) steps: it deploys the Private Endpoint, shows the ID and IP to register in Atlas, waits until Atlas approves it, asks for the private connection string and deploys again. Stop at any point and run `./deploy.sh` again to continue. With the test hub you can also pick the test MongoDB on the jump VM.
-
-Batch mode (no prompts, e.g. CI): copy [`deploy.answers.example.yaml`](../../deploy.answers.example.yaml) to `<stack>.answers.yaml`, keep secrets in environment variables (`env:VAR_NAME`), then:
-
-```bash
-./deploy.sh --answers acme-dev.answers.yaml --yes
-```
-
-`./deploy.sh --help` lists the options (`--preview-only`, `--stack`). The sections below describe the same steps by hand.
-
-## What gets deployed (per environment)
+One stack per environment (e.g. `acme-dev`, `acme-prod`):
 
 ```
  AVD / users ─► Azure Firewall ─► App Gateway (WAF) ─┬─► Function App PE :443        (hub: yours)
-                                                     └─► /blob/* ─► Blob PE :443 (optional, see blobPublicBaseUrl)
+                                                     └─► /blob/* ─► Blob PE :443 (optional)
  ┌──────────── Spoke VNet (this stack) ──────────────────────────────────────────────────┐
  │ app subnet  VNet integration (delegated to Microsoft.Web/serverFarms), UDR → firewall    │
  │              Function App  ingestro/pipelines:<version> (Elastic Premium)               │
@@ -49,198 +41,277 @@ Batch mode (no prompts, e.g. CI): copy [`deploy.answers.example.yaml`](../../dep
  └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| Resource                | Notes                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Function App            | `<prefix>-<environment>-func`, plan EP1 (`functionPlanSku`), min 1 / max `functionMaxInstances` (3) instances, public access disabled |
-| Mapping Web App         | `<prefix>-<environment>-mapping`, plan P1v3 (`mappingPlanSku`), public access disabled                                                |
-| App settings            | Secrets are Key Vault references resolved with each app's system-assigned identity                                                    |
-| HyperFormula share      | Azure Files share mounted at `/mnt/hyperformula-column` on the Function App (shared by all instances)                                 |
-| Storage account         | Public access disabled; blob, file, queue and table Private Endpoints (`AzureWebJobsStorage`, share, data)                            |
-| Key Vault               | RBAC, public access disabled, Private Endpoint                                                                                        |
-| Log Analytics workspace | Function App and mapping logs through diagnostic settings (Log stream / Kudu are not reachable with public access disabled)           |
-| Atlas Private Endpoint  | Azure side only (manual approval in Atlas)                                                                                            |
+| Resource                | Notes                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Function App            | Plan EP1, min 1 / max `functionMaxInstances` instances (the wizard sets 2; without it the default is 3), public access disabled |
+| Mapping Web App         | Plan P1v3, public access disabled                                                                                               |
+| App settings            | Secrets are Key Vault references to the exact secret version, resolved with each app's system-assigned identity                 |
+| HyperFormula share      | Azure Files share mounted at `/mnt/hyperformula-column` on the Function App (shared by all instances)                           |
+| Storage account         | Public access disabled; blob, file, queue and table Private Endpoints                                                           |
+| Key Vault               | RBAC, public access disabled, Private Endpoint                                                                                  |
+| Log Analytics workspace | App logs through diagnostic settings (Log stream and Kudu are not reachable with public access disabled)                        |
+| Atlas Private Endpoint  | Only with MongoDB Atlas: the Azure side of the Private Link (registered in Atlas, see [MongoDB Atlas](#5-mongodb-atlas))        |
 
-Subnets: `<prefix>-<environment>-app-subnet` and `<prefix>-<environment>-pe-subnet` (no default outbound access).
+Resource names start with `<prefix>-<environment>-` (e.g. `ingestro-dev-func…`); Azure adds a random suffix to most of them.
 
-## Upgrade and rollback
+## 2. Before you start
 
-- **Upgrade:** change `version` (and/or `mappingVersion`), then `pulumi up`. The apps switch to the new image tags (`ingestro/pipelines:<version>`, `ingestro/mapping:<mappingVersion>`).
-- **Rollback:** set the previous `version`, then `pulumi up`.
+### Your machine
 
-## Prerequisites
+- **Node.js 20+**, the **Pulumi CLI** and the **Azure CLI**. `./deploy.sh` checks them and offers to install Pulumi (and the Azure CLI with Homebrew); it works on macOS, Linux, WSL and Azure Cloud Shell.
+- `az login` with a role that can create resources and role assignments in the subscription (Owner, or Contributor + User Access Administrator). With an existing hub you also need write access to its Private DNS zones (Private DNS Zone Contributor), also when they are in another subscription.
+- Outbound HTTPS to `api-gateway.ingestro.com` (or `api-gateway-develop.ingestro.com` for `dev-*` images): the wizard checks the license there and gets the registry key for the images.
 
-### On your side (hub)
+### Azure subscription
 
-- Azure Firewall with a private IP (the UDR next hop), and DNS proxy if you use it.
-- Private DNS zones, resolvable from the spoke: either through your DNS proxy (`dnsServers`), or set `linkPrivateDnsZonesToSpoke: true` and the stack links them to the spoke VNet (the deployer needs write access to the zones, also across subscriptions).
+App Service quota is per SKU and region, and new or sponsored subscriptions often start at **0**. In the Azure portal, **Quotas → App Service**, for the region you deploy to:
 
-  | `privateDnsZoneIds` key | Zone                                 |
-  | ----------------------- | ------------------------------------ |
-  | `blob`                  | `privatelink.blob.core.windows.net`  |
-  | `file`                  | `privatelink.file.core.windows.net`  |
-  | `queue`                 | `privatelink.queue.core.windows.net` |
-  | `table`                 | `privatelink.table.core.windows.net` |
-  | `vault`                 | `privatelink.vaultcore.azure.net`    |
-  | `sites`                 | `privatelink.azurewebsites.net`      |
+| Quota      | Minimum                                    |
+| ---------- | ------------------------------------------ |
+| `EP1 VMs`  | `functionMaxInstances` (2 with the wizard) |
+| `P1v3 VMs` | 1                                          |
 
-- VNet peering between hub and spoke. This stack does not create peering.
-- An App Gateway listener + certificate for your hostname, e.g. `ingestro.company.local`.
-- A MongoDB Atlas cluster per environment, managed by you (see [MongoDB Atlas](#mongodb-atlas)).
-- A DP license key per environment (dev key for Dev, live key for Prod).
+Without it, the deployment fails on the App Service plans with `Operation cannot be completed without additional quota`. The wizard registers the resource providers it needs (after asking).
 
-### Subscription quota
+### License key and images
 
-App Service quota is per SKU and region, and new or sponsored subscriptions often start at 0. Check **Quotas → App Service** for the stack's region and request at least:
+- One DP license key per environment.
+- **Image version and license go together:** `dev-*` images (e.g. `version: dev-0.147.0`, `mappingVersion: 20457-develop`) verify licenses against Ingestro's develop environment and need a dev license key; release images (e.g. `0.147.0`) need a live key. The wizard picks the matching license API from the version.
 
-| Quota      | Minimum                            |
-| ---------- | ---------------------------------- |
-| `EP1 VMs`  | `functionMaxInstances` (default 3) |
-| `P1v3 VMs` | 1                                  |
+### Hub
 
-Use the SKU you set in `functionPlanSku` / `mappingPlanSku` if you changed them. Without quota, `pulumi up` fails on the App Service plans with `Operation cannot be completed without additional quota`.
+The wizard asks which one you use:
 
-### Deployer machine
+- **Your existing hub** (production): Azure Firewall with a private IP, an App Gateway (WAF), and the six Private DNS zones below. The wizard ends with what the network admin sets up: peering, firewall rules, DNS and App Gateway ([section 6](#6-hand-over-to-the-network-admin)).
+- **A test hub** (evaluation only): the wizard deploys it for you ([section 4](#4-try-it-with-the-test-hub)).
 
-- Pulumi CLI, Node.js 18+, Azure CLI (`az login`).
-- Outbound access to `api-gateway.ingestro.com`, used at deploy time to get the registry key for Docker Hub pulls (not needed with ACR).
-- An Azure role that can create resources and role assignments in the subscription (e.g. Owner, or Contributor + User Access Administrator).
+| Private DNS zone                     | Used for                                             |
+| ------------------------------------ | ---------------------------------------------------- |
+| `privatelink.blob.core.windows.net`  | Storage: data and SAS downloads                      |
+| `privatelink.file.core.windows.net`  | Storage: Function App content and HyperFormula share |
+| `privatelink.queue.core.windows.net` | Storage: Functions runtime                           |
+| `privatelink.table.core.windows.net` | Storage: Functions runtime                           |
+| `privatelink.vaultcore.azure.net`    | Key Vault                                            |
+| `privatelink.azurewebsites.net`      | Function App and mapping app                         |
 
-## MongoDB Atlas
+Every Private Endpoint registers its address in these zones, so they are needed with both DNS options:
 
-You create and operate the Atlas clusters; this stack creates the Azure side of the Private Endpoint and stores the connection string in Key Vault.
+- **DNS proxy in the hub** (e.g. Azure Firewall DNS proxy): the spoke uses its IP as DNS server; nothing is created in the hub.
+- **No DNS proxy:** the deployment links the six zones to the spoke VNet. The zones must already exist.
 
-**Requirements**
+### Database
 
-- One cluster per environment (Dev, Prod), MongoDB ≥ 5.0, on Azure in the same region as the stack (`location`).
-- A **dedicated tier, M10 or larger**: Atlas Private Link is not available on free, Flex or serverless clusters.
-- A database user with `readWrite` on the databases set in `DB_NAME` (default `ingestro`) and `LOG_DB_NAME` (default `ingestro_logging`).
-- No public IPs in the cluster's IP access list: Ingestro connects only through the Private Endpoint.
+- **MongoDB Atlas** (production): a dedicated **M10 or larger** cluster on Azure in the same region, MongoDB ≥ 5.0, a database user with `readWrite` on `ingestro` and `ingestro_logging`, and no public IPs in its access list. See [MongoDB Atlas](#5-mongodb-atlas).
+- **Test MongoDB on the jump VM** (test hub only, no auth).
+- **Any other connection string** reachable from the spoke through your firewall.
 
-**Steps (per environment)**
+### AI provider (mapping module)
 
-1. In Atlas, open **Network Access → Private Endpoint → Dedicated cluster → Microsoft Azure**, pick the region, and copy the **Private Link Service resource ID** it shows.
-2. Set it in the stack, plus a temporary connection string (Pulumi needs one on the first run; the standard SRV string is fine):
+- **Azure OpenAI**: endpoint, deployment name (default `gpt-4o-mini`) and API key. Recommended on Azure: it can be reached through a Private Endpoint.
+- **AWS Bedrock**: region, model ID and an access key with `bedrock:InvokeModel`; the spoke needs egress to `bedrock-runtime.<region>.amazonaws.com`.
 
-   ```bash
-   pulumi config set ATLAS_PRIVATE_LINK_SERVICE_ID '<private-link-service-resource-id>'
-   pulumi config set --secret MONGO_CONNECTION_STRING '<temporary-srv-string>'
-   pulumi up
-   ```
-
-3. Back in Atlas, click **Add Endpoint** and finish it with `atlasPrivateEndpointId` (the Azure Private Endpoint resource ID) and `atlasPrivateEndpointIp` from `pulumi stack output azureDocker`. Skip the `az network private-endpoint create` command Atlas shows; this stack already created the endpoint. Wait until the endpoint is **Available**.
-4. In Atlas, **Connect → Private Endpoint → Drivers**, copy the private endpoint SRV string (`mongodb+srv://<cluster>-pl-0.<id>.mongodb.net/...`) with the database user, then:
-
-   ```bash
-   pulumi config set --secret MONGO_CONNECTION_STRING '<private-endpoint-srv-string>'
-   pulumi up
-   ```
-
-   The app settings reference the exact secret version, so `pulumi up` points them at the new version and App Service restarts with it. No manual restart is needed.
-
-5. Check from inside the network (e.g. a jump host in a peered subnet) that the `-pl-0` host name resolves to `atlasPrivateEndpointIp`. Atlas publishes these DNS records from the IP you registered in step 3, so no Private DNS zone is needed on your side. Atlas on Azure serves each node on its own port from 1024 up (not 27017), so any rule between the app subnet and the endpoint subnet must allow that range.
-
-## Deploy
+## 3. Deploy with the wizard
 
 ```bash
-npm install
-pulumi stack init <customer>-dev
-cp Pulumi.azure-docker.yaml.example Pulumi.<customer>-dev.yaml   # edit values
-pulumi config set --secret INGESTRO_LICENSE_KEY <dev-license-key>
-pulumi config set --secret MONGO_CONNECTION_STRING '<atlas-srv-string>'   # see MongoDB Atlas
+git clone https://github.com/getnuvo/pipelines-selfhost.git && cd pipelines-selfhost
+./deploy.sh
+```
+
+The first run checks the tools and installs the npm dependencies, then the wizard asks, section by section:
+
+| Section             | What you answer                                                                                                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Preflight           | Azure subscription (if you have several). The wizard checks `az login`, the resource providers and the Pulumi login.                                                                                                                   |
+| Stack               | Pick a stack or create one (e.g. `acme-dev`). With a local Pulumi backend, stack secrets are encrypted with a **key file** (listed from `~/.pulumi`, generated for a new stack) or a passphrase; the key file is remembered per stack. |
+| Stack settings      | Name prefix, environment, Azure region (type to filter).                                                                                                                                                                               |
+| Release             | Pipelines and mapping image versions.                                                                                                                                                                                                  |
+| License             | The DP license key, verified right away: a wrong key or environment stops here.                                                                                                                                                        |
+| Hub                 | Existing hub (firewall private IP, App Gateway subnet, DNS option, the six zones: found in your subscriptions and used automatically when there is exactly one each) or test hub.                                                      |
+| Access              | App Gateway URL used as `baseUrl` (optional, can come later), origins of your app for file uploads, and how browsers reach Blob storage: an App Gateway `/blob/*` rule (recommended) or directly from browser subnets.                 |
+| Mapping module (AI) | Azure OpenAI or AWS Bedrock, then its settings.                                                                                                                                                                                        |
+| Database            | MongoDB Atlas, the test MongoDB, or a connection string.                                                                                                                                                                               |
+
+The spoke layout (`10.20.0.0/16`, app subnet `.1.0/24`, endpoint subnet `.2.0/24`) and the App Service plans (EP1, max 2 instances; P1v3) are not asked; set them in the [answers file](#10-batch-mode) to change them.
+
+Then a **review** of every value (secrets shown as `set`), the **preview** (what will be created), and a confirmation before anything is deployed. At the end the wizard prints the next steps for your hub.
+
+**Run it again any time.** With a complete saved configuration it offers to **resume** (no questions, continue where it stopped, e.g. waiting for Atlas) or to **review and edit** (every question, with the saved values as defaults). `./deploy.sh --preview-only` shows what would change without deploying.
+
+## 4. Try it with the test hub
+
+For evaluation, without a customer hub. Pick **Create a test hub for me** in the Hub section. The wizard also deploys [`test/azure-docker-hub`](../../test/azure-docker-hub/index.ts):
+
+| Part                                                   | Stands in for                       |
+| ------------------------------------------------------ | ----------------------------------- |
+| NVA VM `10.29.0.4` (IP forwarding + NAT for the spoke) | Azure Firewall                      |
+| Jump VM `10.29.2.4` (public IP, SSH from your IP only) | App Gateway and the users' browsers |
+| Test MongoDB on the jump VM (no auth)                  | MongoDB (optional)                  |
+| The six Private DNS zones, linked to hub and spoke     | Hub DNS                             |
+
+It asks only for your public IP (detected) and an SSH key (from `~/.ssh`, or a new one), deploys the hub, then the spoke, peers them and restarts the apps. One test hub per subscription. If your public IP changes later, the next run offers to update the jump VM's SSH rule.
+
+At the end it prints how to reach the API from your machine:
+
+1. Keep an SSH tunnel through the jump VM open (the wizard prints the exact command):
+   ```bash
+   ssh -i ~/.ssh/<key> -N -D 1080 ingestro@<jump VM public IP>
+   ```
+2. Start a browser that uses it:
+   ```bash
+   open -na "Google Chrome" --args --user-data-dir=/tmp/chrome-ingestro --proxy-server="socks5://localhost:1080"
+   ```
+3. In that browser, open the Ingestro dashboard and set the base URL to `https://<functionAppHostname>` (printed by the wizard). `https://<functionAppHostname>/dp/api/v1/management/health` returns `{"data":{"message":"OK"}}`.
+
+The test hub and the spoke cost money while they run (App Service plans, VMs): remove them with `./deploy.sh destroy` ([section 9](#9-teardown)).
+
+## 5. MongoDB Atlas
+
+You create and operate the Atlas cluster. The deployment creates the Azure side of the Private Endpoint and keeps the connection string in Key Vault. The private connection string only exists once the endpoint is registered in Atlas, so this takes **two rounds**, and the wizard runs both:
+
+1. **In Atlas, before the wizard:** Network Access → Private Endpoint → Dedicated Cluster → **Create endpoint service** (or Add Private Endpoint) → Microsoft Azure → your region. Wait until it is **Available** and copy its **Private Link Service resource ID** (`/subscriptions/…/privateLinkServices/pls_…`).
+2. **Wizard, Database section:** pick MongoDB Atlas and paste the Private Link Service ID. The first deployment creates the Private Endpoint.
+3. **Wizard prints what to enter in Atlas** (Add Endpoint on that endpoint service):
+
+   | Atlas form                                                                     | Value                                                            |
+   | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+   | Step 1: Resource Group, Virtual Network, Subnet, Private Endpoint name, Region | printed by the wizard (they only fill in Atlas's sample command) |
+   | Step 1: `az network private-endpoint create …`                                 | **Do not run it**: the endpoint already exists. Click Next.      |
+   | Step 2: Private Endpoint resource ID and IP address                            | printed by the wizard                                            |
+
+4. **Wizard waits** until Atlas approves the endpoint (checks every 20 s). You can stop with Ctrl+C and run `./deploy.sh` again later: **resume** continues here.
+5. **Wizard asks for the private connection string:** Atlas → Connect → Private Endpoint → Drivers. Paste it as shown; when it still contains `<db_password>`, the wizard asks for the password and inserts it (URL-encoded). The host must contain `-pl-` (e.g. `cluster-pl-0.abc.mongodb.net`).
+6. **Second deployment** stores it; the apps pick up the new secret version right away. The wizard checks that the `-pl-` host resolves to the Private Endpoint IP.
+
+Atlas on Azure serves each node on its own port from **1024 up** (not 27017): any rule between the app subnet and the endpoint subnet must allow that range. Atlas publishes the `-pl-` DNS records itself, so no Private DNS zone is needed for Atlas.
+
+## 6. Hand-over to the network admin
+
+With your existing hub, the wizard ends with this list, filled in with the deployed values.
+
+**1. Peering** between the hub VNet and the spoke VNet (`spokeVnetId`, address space `spokeAddressSpace` in the stack outputs): both directions, forwarded traffic allowed on the hub side. Restart the two apps after the peering and the firewall rules are in place, so they pull their images.
+
+**2. Azure Firewall**
+
+The deployment routes the app subnet's `0.0.0.0/0` to the firewall private IP you entered.
+
+| Inbound from       | To                    | Port                                           |
+| ------------------ | --------------------- | ---------------------------------------------- |
+| AVD / user subnets | App Gateway           | 443                                            |
+| App Gateway subnet | Function App PE       | 443                                            |
+| AVD / user subnets | Blob Private Endpoint | 443, only without the `/blob` App Gateway rule |
+
+| Egress from the spoke to                                                     | Why                                                 |
+| ---------------------------------------------------------------------------- | --------------------------------------------------- |
+| `api-gateway.ingestro.com`                                                   | License verification on every execution             |
+| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | Image pulls                                         |
+| Azure OpenAI endpoint (or its Private Endpoint)                              | Mapping module LLM                                  |
+| `bedrock-runtime.<region>.amazonaws.com`                                     | Mapping module LLM, only with AWS Bedrock           |
+| `*.pusher.com`, `*.pusherapp.com`                                            | Realtime updates, only if `PUSHER_*` is set         |
+| `api.brevo.com`                                                              | Email notifications, only if `BREVO_API_KEY` is set |
+| Your data sources / destinations                                             | Pipeline input and output connectors                |
+
+In the minimal setup (Azure OpenAI through a Private Endpoint, no Pusher or Brevo), the internet egress is the license check and the image pulls. Ingestro does not collect telemetry from self-hosted deployments.
+
+**3. DNS:** with "No DNS proxy" the deployment linked the zones to the spoke. With a DNS proxy, the proxy must resolve the six `privatelink.*` zones (the Private Endpoint records are already in them).
+
+**4. App Gateway**
+
+- **Backend pool:** `functionAppHostname` (resolves to `functionAppPrivateEndpointIp` through `privatelink.azurewebsites.net`).
+- **Backend settings:** HTTPS 443, host header overridden to `functionAppHostname`.
+- **Health probe:** `GET /dp/api/v1/management/health`, expects 200.
+- **Route only `/dp/*` to the Function App.** It also serves internal `/functions/*` routes that DP calls on itself; they must not be reachable through the App Gateway. Return 404 for every other path.
+- **Optional, keep file transfers behind the WAF:** a path rule `/blob/*` → strip `/blob` → backend `<storageAccountName>.blob.core.windows.net` (the Blob Private Endpoint), HTTPS 443, host header overridden to that name. Choose this in the wizard's Access section (it sets `blobPublicBaseUrl`); SAS signatures don't depend on the host, so proxied URLs stay valid.
+
+| Path      | Backend                               | Notes                                     |
+| --------- | ------------------------------------- | ----------------------------------------- |
+| `/dp/*`   | Function App (`functionAppHostname`)  | API + health probe                        |
+| `/blob/*` | Blob Private Endpoint (strip `/blob`) | Only with the `/blob` rule                |
+| other     | none (404)                            | Keeps `/functions/*` and the root private |
+
+**5. Embeddables and access tokens**
+
+- Set the embeddables' `baseUrl` to the App Gateway host only, e.g. `https://ingestro.company.local`: no `/dp` (the SDK appends `/dp/api/v1`), and not the mapping host. Enter it in the wizard (Access → App Gateway URL) to publish it as `pulumi stack output endpoint`.
+- Your backend requests access tokens from `https://<app gateway host>/dp/api/v1/access/token` with the license key of that environment; self-host forwards the request to Ingestro.
+
+## 7. Verify
+
+From a host inside the network (with the test hub: through the SSH tunnel or on the jump VM):
+
+- `curl https://<functionAppHostname>/dp/api/v1/management/health` returns `{"data":{"message":"OK"}}`.
+- `functionAppHostname`, `<storageAccountName>.blob.core.windows.net` and `<keyVaultName>.vault.azure.net` resolve to `10.x` addresses.
+- From outside the network the same URL returns 403.
+- Create a connector and a pipeline in the dashboard and run it; with Atlas, the `ingestro` database appears in Atlas → Browse Collections.
+
+## 8. Operations
+
+- **Upgrade:** `./deploy.sh` → review and edit → new Pipelines / mapping version → deploy. **Rollback:** the same with the previous version.
+- **Secrets** (license key, connection string, API keys): change them through the wizard (or `pulumi config set --secret` + `pulumi up`). The apps reference the exact secret version, so they pick up the new one on that deployment; a restart alone does not.
+- **Logs:** Log Analytics workspace (`logAnalyticsWorkspaceId` output), tables `FunctionAppLogs` and `AppServiceConsoleLogs`.
+- **Scaling:** `functionPlanSku` (EP1–EP3), `functionMaxInstances`, `mappingPlanSku` in the answers file or stack config.
+
+## 9. Teardown
+
+```bash
+./deploy.sh destroy                            # pick the stack, see what goes, type its name to confirm
+./deploy.sh destroy --stack acme-dev --yes     # no prompts
+```
+
+- Removes the stack's resources, and the test hub when the stack uses one (`--keep-hub` keeps it). It retries the transient errors Azure returns while it removes dependent resources.
+- **MongoDB Atlas:** it can also remove the Private Endpoint from the Atlas endpoint service, with an Atlas service account (Organization → Access Manager → Service Accounts, Project Owner on the project; in batch mode `ATLAS_CLIENT_ID` / `ATLAS_CLIENT_SECRET`). Otherwise remove it in the Atlas UI. The endpoint service and the cluster stay.
+- **Key Vault:** removed with its secrets and kept soft-deleted for 90 days (no cost). Its name has a random suffix, so a new deployment does not collide with it.
+- The stack's saved settings are kept (to deploy again) unless you choose to remove them.
+
+## 10. Batch mode
+
+For CI or repeatable setups, without prompts:
+
+```bash
+cp deploy.answers.example.yaml acme-dev.answers.yaml   # *.answers.yaml is git-ignored
+export INGESTRO_LICENSE_KEY=... AZURE_OPENAI_API_KEY=... MONGO_CONNECTION_STRING=...
+./deploy.sh --answers acme-dev.answers.yaml --yes
+```
+
+- Keys match the wizard's questions; [`deploy.answers.example.yaml`](../../deploy.answers.example.yaml) lists them with comments. Secrets are `env:VAR_NAME`, so they never sit in the file.
+- With a local Pulumi backend, set `pulumiPassphraseFile` (the file must exist) or export `PULUMI_CONFIG_PASSPHRASE`.
+- Values already in the stack are kept when a key is left out. Discovered values (e.g. a DNS zone that exists once) are used when not set.
+- Exit codes: `2` invalid answers (all reported at once), `3` MongoDB Atlas waits for the endpoint to be registered: register it, set `mongoConnectionString` to the private string, run again. Without `--yes` it stops after the preview.
+
+## 11. Without the wizard
+
+The wizard only writes stack config and runs Pulumi; you can do the same by hand:
+
+```bash
+npm ci
+pulumi stack init acme-dev
+cp Pulumi.azure-docker.yaml.example Pulumi.acme-dev.yaml   # edit the values
+pulumi config set --secret INGESTRO_LICENSE_KEY <license-key>
+pulumi config set --secret MONGO_CONNECTION_STRING '<connection-string>'
 pulumi config set --secret S3_CONNECTOR_SECRET_KEY "$(openssl rand -hex 32)"
 pulumi config set --secret mappingAzureOpenaiApiKey <key>
 pulumi up
 ```
 
-After the first `pulumi up`, take the values from `pulumi stack output azureDocker`:
+For `dev-*` images also set `selfHostDeploymentUrl: https://api-gateway-develop.ingestro.com/dp/api/v1/auth/self-host-deployment`. For Atlas, set `ATLAS_PRIVATE_LINK_SERVICE_ID` with a temporary connection string, `pulumi up`, register `atlasPrivateEndpointId` / `atlasPrivateEndpointIp` (from `pulumi stack output azureDocker`) in Atlas, then set the private connection string and `pulumi up` again ([section 5](#5-mongodb-atlas)). Peering, firewall, DNS and App Gateway as in [section 6](#6-hand-over-to-the-network-admin).
 
-1. **Atlas:** finish the Private Endpoint and switch to the private connection string (steps 3–4 in [MongoDB Atlas](#mongodb-atlas)).
-2. **App Gateway**
-   - **Backend pool:** `functionAppHostname`. It resolves to `functionAppPrivateEndpointIp` through `privatelink.azurewebsites.net`.
-   - **Backend settings:** HTTPS 443, with the host header overridden to `functionAppHostname`.
-   - **Health probe:** `GET /dp/api/v1/management/health` (expects 200).
-   - **Route only `/dp/*` to the Function App.** The app also serves internal `/functions/*` routes that DP calls on itself (protected by a token); they must not be reachable through the App Gateway. Return 404 (or a redirect) for every other path.
-   - **Optional, keep file transfers behind the WAF:**
-     - Add a path rule `/blob/*` → rewrite to strip `/blob` → backend `<storageAccountName>.blob.core.windows.net` (the Blob Private Endpoint), HTTPS 443, host header overridden to that name.
-     - Then set `blobPublicBaseUrl: https://<your-app-gateway-host>/blob` and run `pulumi up`.
-     - SAS signatures don't depend on the host, so the proxied URLs stay valid.
+## 12. Troubleshooting
 
-   | Path      | Backend                               | Notes                                     |
-   | --------- | ------------------------------------- | ----------------------------------------- |
-   | `/dp/*`   | Function App (`functionAppHostname`)  | API + health probe                        |
-   | `/blob/*` | Blob Private Endpoint (strip `/blob`) | Only with `blobPublicBaseUrl`             |
-   | other     | none (404)                            | Keeps `/functions/*` and the root private |
-
-3. **Embeddables:** set `baseUrl` to the App Gateway host only, e.g. `https://ingestro.company.local`.
-   - Set the same value as `apiBaseUrl` and run `pulumi up` to publish it as `pulumi stack output endpoint`. Without it, `endpoint` stays empty, because the Function App URL is private.
-   - Don't add `/dp`. The SDK appends `/dp/api/v1` itself, so `.../dp` ends in 404s on `/dp/dp/...`.
-   - Use the Function App (through the App Gateway), not `mappingAppHostname`. The mapping module is called by DP only.
-4. **Access tokens:** your backend requests them from `https://<your-app-gateway-host>/dp/api/v1/access/token` with the license key of that environment. Self-host forwards the request to Ingestro Cloud.
-
-5. **Verify** from a host inside the network (e.g. a jump host in a peered subnet):
-   - `curl https://<functionAppHostname>/dp/api/v1/management/health` returns `{"data":{"message":"OK"}}`.
-   - `functionAppHostname`, `<storageAccountName>.blob.core.windows.net` and `<keyVaultName>.vault.azure.net` resolve to `10.x` addresses (the Private Endpoint IPs).
-   - From outside the network, the same URL returns 403.
-
-Repeat with a `<customer>-prod` stack and the prod license key.
-
-## Teardown
-
-```bash
-./deploy.sh destroy            # asks for the stack, shows what goes, confirm by typing its name
-./deploy.sh destroy --stack acme-dev --yes   # no prompts
-```
-
-It also removes the test hub when the stack uses one (`--keep-hub` keeps it), and retries the transient errors Azure returns while it removes dependent resources. `pulumi destroy` works too.
-
-- Key Vault secrets are removed together with the vault (Pulumi does not delete them one by one, because the vault's data plane is private). The vault stays soft-deleted for 90 days; its name has a random suffix, so a new deployment does not collide with it.
-- MongoDB Atlas: `./deploy.sh destroy` can also remove the Private Endpoint from the Atlas endpoint service with an Atlas service account (Organization > Access Manager > Service Accounts, Project Owner on the project; in batch mode set `ATLAS_CLIENT_ID` / `ATLAS_CLIENT_SECRET`). Otherwise remove it in the Atlas UI. The endpoint service and the cluster stay; they are yours to keep or delete.
-
-## Firewall rules
-
-**Inbound**
-
-| From               | To                    | Port                                                       |
-| ------------------ | --------------------- | ---------------------------------------------------------- |
-| AVD / user subnets | App Gateway           | 443                                                        |
-| App Gateway subnet | Function App PE       | 443                                                        |
-| AVD / user subnets | Blob Private Endpoint | 443, only without the `/blob` App Gateway rule (see above) |
-
-The Private Endpoint subnet NSG allows the spoke and `appGatewaySubnetCidr` (443). Add the browser subnets to `blobClientCidrs` if you don't proxy Blob through the App Gateway.
-
-**Egress allow-list (from the spoke)**
-
-| FQDN                                                                         | Why                                                         |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `api-gateway.ingestro.com`                                                   | License verification on every execution                     |
-| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | Image pulls (not needed with ACR + Private Endpoint)        |
-| Azure OpenAI endpoint (or its Private Endpoint)                              | Mapping module LLM                                          |
-| `bedrock-runtime.<region>.amazonaws.com`                                     | Mapping module LLM, only with `mappingLlmProvider: BEDROCK` |
-| `*.pusher.com`, `*.pusherapp.com`                                            | Realtime updates, only if `PUSHER_*` is set                 |
-| `api.brevo.com`                                                              | Email notifications, only if `BREVO_API_KEY` is set         |
-| Your data sources / destinations                                             | Pipeline input and output connectors                        |
-
-In the minimal setup (ACR and Azure OpenAI through Private Endpoints, no Pusher or Brevo), the only egress to the internet is `api-gateway.ingestro.com` for license verification. Ingestro does not collect telemetry from self-hosted deployments.
-
-## Operations
-
-- **Logs:** Log Analytics workspace (`logAnalyticsWorkspaceId` output), tables `FunctionAppLogs` and `AppServiceConsoleLogs`.
-- **Scaling:** `functionPlanSku`, `functionMaxInstances` and `mappingPlanSku`.
-
-## Troubleshooting
-
-Kudu and Log stream are not reachable with public access disabled. Read the container start log through ARM instead:
+Kudu and Log stream are not reachable with public access disabled. Read the container start log through ARM:
 
 ```bash
 az rest --method post --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<resourceGroupName>/providers/Microsoft.Web/sites/<functionAppName>/containerlogs?api-version=2023-12-01"
 ```
 
-| Symptom                                                                  | Cause and fix                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App returns 503; container log shows `ImagePullFailure` after ~3 minutes | The spoke cannot reach the registry. Allow the Docker Hub FQDNs (see [Egress allow-list](#firewall-rules)) on the firewall, check the UDR next hop and that the firewall accepts traffic from the spoke, then `az functionapp restart`.                                                                                                                                                                                           |
-| `ImagePullFailure` right away (unauthorized)                             | Registry credentials. Check that `DOCKER_REGISTRY_SERVER_PASSWORD` shows **Resolved** under the app's Key Vault references, and that the license key is valid for the environment.                                                                                                                                                                                                                                                |
-| Browser shows a CORS error on API calls                                  | Usually the browser reached the public endpoint (403 without CORS headers) instead of the App Gateway / Private Endpoint. The API itself allows any origin.                                                                                                                                                                                                                                                                       |
-| CORS error on file uploads/downloads                                     | Add the app's origin to `allowedOrigins` (Blob CORS). The Ingestro dashboards are allowed by default.                                                                                                                                                                                                                                                                                                                             |
-| CORS preflight returns 404 on `/api/v1/...` (no `/dp`)                   | `baseUrl` points to the mapping app or another host. Use the App Gateway host that routes `/dp/*` to the Function App.                                                                                                                                                                                                                                                                                                            |
-| A secret changed in Key Vault outside Pulumi is not picked up            | App Service caches Key Vault references. Change secrets through `pulumi config set --secret` + `pulumi up` (the apps reference the exact version), or force a refresh: `az rest --method post --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<resourceGroupName>/providers/Microsoft.Web/sites/<app>/config/configreferences/appsettings/refresh?api-version=2022-03-01"`. A restart alone is not enough. |
-| Atlas connection times out                                               | The Atlas endpoint is not **Available** yet, or a rule blocks ports 1024+ between the app subnet and the endpoint subnet (see [MongoDB Atlas](#mongodb-atlas) step 5).                                                                                                                                                                                                                                                            |
+| Symptom                                                                  | Cause and fix                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Operation cannot be completed without additional quota`                 | Request App Service quota ([section 2](#azure-subscription)), then run the wizard again: it continues.                                                                                                                                                                                               |
+| `Cannot decrypt the secrets of stack …`                                  | Wrong key file or passphrase for that stack; the wizard asks again. Use the one the stack was created with.                                                                                                                                                                                          |
+| License key rejected                                                     | Wrong key, or a dev key with a release image (or the reverse): see [License key and images](#license-key-and-images).                                                                                                                                                                                |
+| App returns 503; container log shows `ImagePullFailure` after ~3 minutes | The spoke cannot reach the registry: peering, the firewall egress rules for Docker Hub, or the route to the firewall. Fix it, then restart the apps.                                                                                                                                                 |
+| `ImagePullFailure` right away (unauthorized)                             | `DOCKER_REGISTRY_SERVER_PASSWORD` must show **Resolved** under the app's Key Vault references; check the license key.                                                                                                                                                                                |
+| Browser: CORS error on API calls                                         | The browser reached the public endpoint (403 without CORS headers) instead of the App Gateway / Private Endpoint. With the test hub: is the SSH tunnel running, is the browser using it?                                                                                                             |
+| Browser: `ERR_PROXY_CONNECTION_FAILED` (test hub)                        | The SSH tunnel is not running, or your public IP changed: run `./deploy.sh` (it offers to update the SSH rule), then start the tunnel again.                                                                                                                                                         |
+| CORS preflight returns 404 on `/api/v1/...`                              | `baseUrl` points to the mapping app or another host. Use the host that routes `/dp/*` to the Function App.                                                                                                                                                                                           |
+| CORS error on file uploads/downloads                                     | Add your app's origin in the Access section (`allowedOrigins`). The Ingestro dashboards are allowed by default.                                                                                                                                                                                      |
+| A secret changed in Key Vault outside Pulumi is not picked up            | App Service caches Key Vault references. Change secrets through the wizard, or refresh: `az rest --method post --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Web/sites/<app>/config/configreferences/appsettings/refresh?api-version=2022-03-01"`. |
+| Atlas connection times out                                               | The Atlas endpoint is not **Available** yet, or a rule blocks ports 1024+ between the app subnet and the endpoint subnet.                                                                                                                                                                            |
+| Atlas authentication fails                                               | The connection string still has `<db_password>` or a wrong password: run the wizard, review and edit, paste the string again.                                                                                                                                                                        |

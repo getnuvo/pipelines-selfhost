@@ -21,7 +21,7 @@ Use this `README.md` as the starting point, then follow the provider-specific gu
 
 - **AWS deployment guide**: [AWS Guide](./docs/aws/guide.md)
 - **Azure deployment guide**: [Azure Guide](./docs/azure/guide.md)
-- **Azure private network (Function App, Private Endpoints)**: [Azure Private Guide](./docs/azure-docker/guide.md)
+- **Azure private network (Function App, Private Endpoints)**: [Azure Private Guide](./docs/azure-docker/guide.md), deployed with the `./deploy.sh` wizard (it can also create a test hub for evaluation)
 
 If you plan to use a custom domain, start here:
 
