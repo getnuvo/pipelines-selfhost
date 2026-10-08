@@ -13,7 +13,12 @@ import {
 } from './questions';
 import * as atlas from './atlas';
 import * as hub from './hub';
-import { ensurePassphrase, wrongPassphrase } from './secrets';
+import {
+  ensurePassphrase,
+  rememberedKeyFile,
+  rememberKeyFile,
+  wrongPassphrase,
+} from './secrets';
 import {
   banner,
   initTheme,
@@ -363,6 +368,7 @@ const main = async () => {
     stackName,
     existingStack: found !== undefined,
     keyFileAnswer: file['pulumiPassphraseFile'] as string | undefined,
+    rememberedKeyFile: rememberedKeyFile(stackName),
   };
   const source = await ensurePassphrase(passphrase);
   let existing: pulumi.StackConfig = {};
@@ -382,19 +388,54 @@ const main = async () => {
   ok(
     `Stack ${stackName}${found ? ' (existing config loaded)' : ' (new, created after the review)'}`,
   );
+  rememberKeyFile(stackName);
 
   const discovery = azure.discovery(
     (await azure.subscriptions(subscription.tenantId)).map((sub) => sub.id),
   );
-  const answers = await collectAnswers({
+  const sources = {
     file,
     existing,
     batch,
     discovery,
     subscriptionId: subscription.id,
-  });
+  };
+  // A complete saved config can be resumed without answering everything again.
+  const saved =
+    found && !batch
+      ? await collectAnswers({ ...sources, batch: true }).catch(() => undefined)
+      : undefined;
+  const resume =
+    saved &&
+    (await select({
+      message: `Saved settings found for ${stackName}`,
+      choices: [
+        {
+          value: true,
+          name: 'Resume with the saved settings (continue where you stopped)',
+        },
+        { value: false, name: 'Review and edit the settings' },
+      ],
+    }));
+  const answers = resume ? saved : await collectAnswers(sources);
+  // Laptops change networks: keep the jump VM's SSH rule on this machine's current IP.
+  if (answers.hubMode === 'test') {
+    const current = await hub.detectPublicIp();
+    if (current && current !== answers.adminIp) {
+      const message = `Your public IP changed: the jump VM allows SSH from ${answers.adminIp}, you are on ${current}.`;
+      if (batch) warn(`${message} Set adminIp to update it.`);
+      else if (
+        await confirm({
+          message: `${message} Allow ${current} instead?`,
+          default: true,
+        })
+      )
+        answers.adminIp = current;
+    }
+  }
   review(stackName, subscription, answers);
-  await quotaReminder(answers, batch);
+  // Only worth a question for a new stack; a deployed one already has the quota.
+  await quotaReminder(answers, batch || found !== undefined);
 
   const changes = configChanges(answers, existing, subscription.id);
   if (
@@ -505,7 +546,11 @@ const main = async () => {
     const endpointIp = String(out['atlasPrivateEndpointIp']);
     let uri = String(answers.mongoConnectionString);
     if (atlasPending) {
-      atlas.registerInstructions(endpointId, endpointIp);
+      await atlas.registerInstructions(
+        endpointId,
+        endpointIp,
+        String(answers.location),
+      );
       if (batch)
         throw new WizardError(
           'Atlas: register the endpoint above, then set mongoConnectionString to the private connection string (host with -pl-) and run again.',
@@ -522,6 +567,9 @@ const main = async () => {
     await atlas.checkPrivateDns(uri, endpointIp);
   }
 
+  // Nothing deployed this run (resumed): read the hub outputs instead.
+  if (hubStack && Object.keys(hubOutputs).length === 0)
+    hubOutputs = unwrap(await hubStack.outputs());
   if (hubStack) testHubSteps(out, hubOutputs, sshKeyFile, stackName);
   else handOver(out, answers);
   info(`\n${green('Done.')}`);

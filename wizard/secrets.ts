@@ -67,6 +67,8 @@ interface PassphraseOptions {
   /** An existing stack can only be opened with the key it was created with: no "generate". */
   existingStack: boolean;
   keyFileAnswer?: string;
+  /** Key file used for this stack last time (only its path is remembered). */
+  rememberedKeyFile?: string;
   /** Ask again after a wrong key (drops what the previous prompt set). */
   retry?: boolean;
 }
@@ -137,6 +139,7 @@ export const ensurePassphrase = async ({
   stackName,
   existingStack,
   keyFileAnswer,
+  rememberedKeyFile,
   retry,
 }: PassphraseOptions): Promise<PassphraseSource> => {
   const local = !backendUrl || backendUrl.startsWith('file://');
@@ -158,6 +161,12 @@ export const ensurePassphrase = async ({
     useKeyFile(file);
 
     return 'answers';
+  }
+  // Tried first; a wrong one comes back here with retry and is asked for.
+  if (!retry && rememberedKeyFile && !readableKeyFile(rememberedKeyFile)) {
+    useKeyFile(rememberedKeyFile);
+
+    return 'prompt';
   }
   if (batch)
     throw new WizardError(
@@ -203,3 +212,33 @@ export const ensurePassphrase = async ({
 /** Reading an existing stack's config fails here when the passphrase does not match. */
 export const wrongPassphrase = (err: unknown) =>
   /passphrase|decrypt/i.test((err as Error).message ?? '');
+
+// Per stack: the key file path that opened it last time. No secrets are stored here.
+const STATE_FILE = path.join(KEY_DIR, 'ingestro-deploy.json');
+
+type State = Record<string, { keyFile?: string }>;
+
+const readState = (): State => {
+  try {
+    return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as State;
+  } catch {
+    return {};
+  }
+};
+
+export const rememberedKeyFile = (stackName: string) =>
+  readState()[stackName]?.keyFile;
+
+export const rememberKeyFile = (stackName: string) => {
+  const keyFile = process.env['PULUMI_CONFIG_PASSPHRASE_FILE'];
+  if (!keyFile || readState()[stackName]?.keyFile === keyFile) return;
+  try {
+    mkdirSync(KEY_DIR, { recursive: true });
+    writeFileSync(
+      STATE_FILE,
+      `${JSON.stringify({ ...readState(), [stackName]: { keyFile } }, null, 2)}\n`,
+    );
+  } catch {
+    // Only a convenience for the next run.
+  }
+};

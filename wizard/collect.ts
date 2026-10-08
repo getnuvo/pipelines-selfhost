@@ -84,6 +84,22 @@ const fromStack = (
   return question.fromConfig?.((key) => read(key));
 };
 
+/** Atlas copies connection strings with this placeholder for the user's password. */
+export const DB_PASSWORD = '<db_password>';
+
+/** Ask for the database password when the string still has Atlas's placeholder. */
+export const fillDbPassword = async (uri: string) => {
+  if (!uri.includes(DB_PASSWORD)) return uri;
+  const secret = await password({
+    message: 'Password of the database user (replaces <db_password>)',
+    mask: '*',
+    validate: (text) => (text ? true : 'Required.'),
+  });
+
+  // Special characters (@ : / ? # %) must be encoded inside the URI.
+  return uri.replace(DB_PASSWORD, encodeURIComponent(secret));
+};
+
 const errorsFor = (
   question: Question,
   answer: Answer | undefined,
@@ -148,10 +164,14 @@ const ask = async (
       const value = await password({
         message: `${question.message}${keep ? ' (Enter keeps the current value)' : ''}`,
         mask: '*',
-        validate: (text) => validate(keep && text === '' ? current : text),
+        // <db_password> is asked for right after, so it is not a leftover placeholder here.
+        validate: (text) =>
+          validate(
+            keep && text === '' ? current : text.replace(DB_PASSWORD, 'x'),
+          ),
       });
 
-      return keep && value === '' ? current : value;
+      return keep && value === '' ? current : fillDbPassword(value);
     }
     case 'list': {
       const value = await input({
