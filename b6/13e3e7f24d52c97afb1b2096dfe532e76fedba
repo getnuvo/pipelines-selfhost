@@ -1,0 +1,35 @@
+wizard/questions.test.ts
+  s_9eeee817b02b24::t_fbdca711e9d6cc 166,174
+test/azure-docker-hub/index.ts
+  s_9eeee817b02b24::t_ea8db3201bf220 6,19,293-314
+wizard/hub.ts
+  s_9eeee817b02b24::t_fbdca711e9d6cc 21-22
+test/azure-docker-hub/appgw.ts
+  s_9eeee817b02b24::t_ea8db3201bf220 206-208
+  s_9eeee817b02b24::t_8d5059f438baae 14,74,76-92,120-128,132,137,162-184,335
+  s_9eeee817b02b24::t_cae7cb84a57093 1-13,104-119,129-131,133-136,138-139,150,153,156-157,159-160,185-205,209-284,290-334,336-372
+  s_9eeee817b02b24::t_db0322129f6e87 17-73,75,102
+  s_9eeee817b02b24::t_8207af4e318338 285-286
+  s_9eeee817b02b24::t_26a32e32de6627 287-289
+  s_9eeee817b02b24::t_ab2df0cb1e13ba 15-16,93-101,103,140-149,151-152,154-155,158,161
+wizard/questions.ts
+  s_9eeee817b02b24::t_fbdca711e9d6cc 330,449
+test/azure-docker-hub/tsconfig.json
+  s_9eeee817b02b24::t_ea8db3201bf220 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "b613e3e7f24d52c97afb1b2096dfe532e76fedba",
+  "prompts": {},
+  "sessions": {
+    "s_9eeee817b02b24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0183b915-c01d-4d6a-ac2e-1862b1a3798e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}
