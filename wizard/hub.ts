@@ -18,10 +18,10 @@ export const TEST_HUB = {
   dir: path.join(WORK_DIR, 'test', 'azure-docker-hub'),
   stack: 'test',
   resourceGroup: 'ingestro-test-hub-rg',
+  /** Stands in for the App Gateway subnet and the browser subnets: the jump VM (10.29.2.0/24)
+   * and the optional test App Gateway (10.29.1.0/24) both reach the spoke. */
   addressSpace: '10.29.0.0/16',
   firewallPrivateIp: '10.29.0.4',
-  /** Jump VM subnet: stands in for the App Gateway and the browsers. */
-  adminSourceCidr: '10.29.2.0/24',
   mongoConnectionString: 'mongodb://10.29.2.4:27017',
 };
 

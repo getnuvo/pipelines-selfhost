@@ -3,7 +3,7 @@
 //
 //   hub VNet 10.29.0.0/16
 //     snet-nva    10.29.0.0/24  NVA VM 10.29.0.4: IP forwarding + NAT for the spoke (= firewallPrivateIp)
-//     snet-appgw  10.29.1.0/24  reserved for an App Gateway later
+//     snet-appgw  10.29.1.0/24  optional App Gateway WAF v2 10.29.1.10 (set appGatewayBackendFqdn)
 //     snet-admin  10.29.2.0/24  jump VM 10.29.2.4 (public IP, SSH from adminIp only) + test Mongo :27017
 //   Private DNS zones: the six privatelink.* zones the spoke needs (linked to the hub)
 //   Peering hub <-> spoke once `spokeVnetId` is set (both sides, forwarded traffic allowed)
@@ -16,6 +16,7 @@ import * as compute from '@pulumi/azure-native/compute';
 import * as network from '@pulumi/azure-native/network';
 import * as privatedns from '@pulumi/azure-native/privatedns';
 import * as resources from '@pulumi/azure-native/resources';
+import { appGateway, APP_GATEWAY_PRIVATE_IP } from './appgw';
 
 const config = new pulumi.Config();
 const location = config.get('location') || 'germanywestcentral';
@@ -289,3 +290,25 @@ export const privateDnsZoneIds = Object.fromEntries(
   Object.keys(zoneNames).map((key, index) => [key, zones[index].id]),
 );
 export const hubVnetId = vnet.id;
+
+// Optional App Gateway WAF v2 (WAF testing): set appGatewayBackendFqdn to the DP Function App
+// host name, plus a self-signed PFX for the listener (appGatewayCertPfx base64 + password).
+const appGatewayBackendFqdn = config.get('appGatewayBackendFqdn');
+const appgw = appGatewayBackendFqdn
+  ? appGateway({
+      resourceGroupName: rg.name,
+      resourceGroupId: rg.id,
+      location,
+      subnetId: appgwSubnet.id,
+      dpFqdn: appGatewayBackendFqdn,
+      blobFqdn: config.get('appGatewayBlobFqdn'),
+      certPfx: config.requireSecret('appGatewayCertPfx'),
+      certPassword: config.requireSecret('appGatewayCertPassword'),
+      wafMode: config.get('wafMode') || 'Detection',
+      ruleSetType: config.get('wafRuleSetType') || 'Microsoft_DefaultRuleSet',
+      ruleSetVersion: config.get('wafRuleSetVersion') || '2.1',
+    })
+  : undefined;
+export const appGatewayPrivateIp = appgw ? APP_GATEWAY_PRIVATE_IP : undefined;
+export const appGatewayLogsWorkspaceId = appgw?.logs.customerId;
+export const wafPolicyId = appgw?.policy.id;

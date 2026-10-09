@@ -327,7 +327,7 @@ export const QUESTIONS: Question[] = [
     default: () => '10.0.1.0/24',
     validate: (a) =>
       v.notOverlapping({ 'the spoke': a.spokeAddressSpace as string }),
-    testHub: () => TEST_HUB.adminSourceCidr,
+    testHub: () => TEST_HUB.addressSpace,
   },
 
   // ---- DNS ----
@@ -446,7 +446,7 @@ export const QUESTIONS: Question[] = [
     message: 'Browser subnets allowed to reach Blob (comma-separated CIDRs)',
     when: (a) => a.blobAccess === 'direct',
     validate: () => v.cidr,
-    testHub: () => [TEST_HUB.adminSourceCidr],
+    testHub: () => [TEST_HUB.addressSpace],
   },
 
   // ---- Mapping LLM ----

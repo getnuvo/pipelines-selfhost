@@ -163,7 +163,7 @@ describe('test hub', () => {
     assert.equal(question('firewallPrivateIp').testHub!(context), '10.29.0.4');
     assert.equal(
       question('appGatewaySubnetCidr').testHub!(context),
-      '10.29.2.0/24',
+      '10.29.0.0/16',
     );
     assert.equal(question('dnsMode').testHub!(context), 'link');
     assert.equal(
@@ -171,7 +171,7 @@ describe('test hub', () => {
       `/subscriptions/${SUB}/resourceGroups/ingestro-test-hub-rg/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net`,
     );
     assert.deepEqual(question('blobClientCidrs').testHub!(context), [
-      '10.29.2.0/24',
+      '10.29.0.0/16',
     ]);
   });
 
