@@ -2,6 +2,7 @@ import { confirm, input, password, select } from '@inquirer/prompts';
 import { removeAtlasEndpoint, type AtlasCredentials } from './atlas-api';
 import {
   LocalWorkspace,
+  StackNotFoundError,
   type OutputMap,
   type Stack,
 } from '@pulumi/pulumi/automation';
@@ -79,7 +80,11 @@ export const destroyDeployment = async (options: {
       ? await LocalWorkspace.selectStack({
           stackName: TEST_HUB.stack,
           workDir: TEST_HUB.dir,
-        }).catch(() => undefined)
+        }).catch((err: unknown) => {
+          // No hub stack: nothing to remove. Anything else must not leave the hub running.
+          if (err instanceof StackNotFoundError) return undefined;
+          throw err;
+        })
       : undefined;
   const hubResources = hubStack ? await resources(hubStack) : [];
   const atlas = configValue(config, 'ATLAS_PRIVATE_LINK_SERVICE_ID');

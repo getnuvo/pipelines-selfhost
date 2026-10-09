@@ -301,7 +301,7 @@ curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deploy
 | `/dp/api/v1/transformation*`, `/dp/api/v1/pipeline*`, `/dp/api/v1/execution*`, `/dp/api/v1/connector*` | DP Function App                                                                                                | `ingestro-data` (see below) | Endpoints that carry user data and transformation code           |
 | `/dp/*`                                                                                                | DP Function App                                                                                                | `ingestro-api`              | Everything else: API, health probe, embedded UI calls            |
 | `/blob/*`                                                                                              | Blob Private Endpoint `<storage account>.blob.core.windows.net` (HTTPS 443, host header override to that name) | `ingestro-blob`             | Only with Blob option A; needs the rewrite rule below            |
-| anything else                                                                                          | none (default rule: 404 / redirect)                                                                            | —                           | Keeps the DP internal routes `/functions/*` and the root private |
+| anything else (the path map default)                                                                   | An **empty backend pool** (App Gateway answers 502) or a redirect to a page of yours; **never the DP backend** | —                           | Keeps the DP internal routes `/functions/*` and the root private |
 
 **Rewrite rule for `/blob/*`** (Blob option A only), attached to the `/blob/*` path rule:
 
@@ -325,11 +325,11 @@ Three policies, one per path group, all with the managed rule set `Microsoft_Def
 | --------------- | ------------------------- | ---------------------------------------------------------------- | ------------------------------------ |
 | `ingestro-api`  | `/dp/*` (everything else) | On, inspect limit and max body 2000 KB, body size enforced       | The eight exclusions below           |
 | `ingestro-data` | The four data path rules  | **Off** (`request_body_check = false`, no body size enforcement) | The eight exclusions below           |
-| `ingestro-blob` | `/blob/*`                 | On                                                               | Rule **920420** disabled (see below) |
+| `ingestro-blob` | `/blob/*`                 | **Off** (`request_body_check = false`, no body size enforcement) | Rule **920420** disabled (see below) |
 
 **Why the data paths skip body inspection.** Their bodies are user content by design: spreadsheet rows from the uploaded files (keyed by the file's own column names, so no field-level exclusion can be written in advance), transformation JavaScript and spreadsheet formulas, and AI prompts. In our measurement those requests scored 33 to 78 and tripped rules in the RCE (932100, 932130, 932140), XSS (941320, 941330), SQLI (about 20 rules from 942100 to 942480), LFI (930110), RFI (931130), protocol attack (921130) and MS-ThreatIntel-SQLI (99031001 to 99031004) groups, under field names such as `function`, `prompt`, `cleanings.<row>.<column>` or the column names themselves. Rows larger than 2000 KB (the API accepts up to 6 MB) would also be rejected by the WAF body size limit. On these paths the WAF still inspects the URL, query string and headers, and every endpoint requires an Ingestro access token. Please have your security team review this trade-off.
 
-**Why `/blob/*` disables 920420.** It carries the uploaded file as-is (`.xlsx`, `.csv`, ...). Rule 920420 only allows the JSON, XML and form content types and blocks every upload. Write access needs the short-lived SAS token issued by the API.
+**Why `/blob/*` disables 920420 and body inspection.** It carries the uploaded file as-is (`.xlsx`, `.csv`, ...) in a raw `PUT` body. Rule 920420 only allows the JSON, XML and form content types and blocks every upload. The body is a file, not inspectable request data, and the 2000 KB body size limit applies to it (the file upload limit only covers multipart forms), so it would reject larger files. Write access needs the short-lived SAS token issued by the API.
 
 **Exclusions** (on `ingestro-api` and `ingestro-data`)
 
@@ -416,8 +416,10 @@ resource "azurerm_web_application_firewall_policy" "ingestro_blob" {
   location            = var.location
 
   policy_settings {
-    enabled = true
-    mode    = "Prevention"
+    enabled                  = true
+    mode                     = "Prevention"
+    request_body_check       = false
+    request_body_enforcement = false
   }
 
   managed_rules {
@@ -436,7 +438,8 @@ resource "azurerm_web_application_firewall_policy" "ingestro_blob" {
 }
 
 # In azurerm_application_gateway:
-#   url_path_map { ...
+#   backend_address_pool { name = "ingestro-none" }  # no targets
+#   url_path_map { default_backend_address_pool_name = "ingestro-none", default_backend_http_settings_name = "ingestro-dp", ...
 #     path_rule { name = "ingestro-data", paths = ["/dp/api/v1/transformation*", "/dp/api/v1/pipeline*", "/dp/api/v1/execution*", "/dp/api/v1/connector*"],
 #                 backend_address_pool_name = "ingestro-dp", backend_http_settings_name = "ingestro-dp",
 #                 firewall_policy_id = azurerm_web_application_firewall_policy.ingestro["ingestro-data"].id }

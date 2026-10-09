@@ -191,7 +191,7 @@ export const ensurePassphrase = async ({
   });
 
   if (mode === 'typed') {
-    process.env['PULUMI_CONFIG_PASSPHRASE'] = await password({
+    const passphrase = await password({
       message: existingStack
         ? `Passphrase stack ${stackName} was created with`
         : 'New passphrase (keep it: every later run needs it)',
@@ -204,6 +204,15 @@ export const ensurePassphrase = async ({
             ? 'Required.'
             : 'Use at least 8 characters.',
     });
+    // A typo in a new stack's passphrase would lock its secrets for good.
+    if (!existingStack)
+      await password({
+        message: 'Repeat the new passphrase',
+        mask: '*',
+        validate: (text) =>
+          text === passphrase ? true : 'The passphrases do not match.',
+      });
+    process.env['PULUMI_CONFIG_PASSPHRASE'] = passphrase;
     ok('Stack secrets: typed passphrase');
 
     return 'prompt';

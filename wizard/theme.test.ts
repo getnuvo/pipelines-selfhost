@@ -12,6 +12,11 @@ describe('background detection', () => {
     assert.equal(parseOsc11('garbage'), undefined);
   });
 
+  it('waits for the end of a split OSC 11 reply', () => {
+    assert.equal(parseOsc11('\x1b]11;rgb:1e1e/1e1e/1e'), undefined);
+    assert.equal(parseOsc11('\x1b]11;rgb:1e1e/1e1e/1e1e'), undefined);
+  });
+
   it('treats a low luminance background as dark', () => {
     assert.ok(luminance([30, 30, 30]) < 0.179);
     assert.ok(luminance([250, 250, 250]) >= 0.179);
@@ -21,6 +26,10 @@ describe('background detection', () => {
     assert.equal(darkFromColorFgBg('15;0'), true);
     assert.equal(darkFromColorFgBg('0;15'), false);
     assert.equal(darkFromColorFgBg('0;default;7'), false);
+    assert.equal(darkFromColorFgBg('0;11'), false, 'bright yellow');
+    assert.equal(darkFromColorFgBg('15;4'), true, 'blue');
+    assert.equal(darkFromColorFgBg('0;99'), undefined);
+    assert.equal(darkFromColorFgBg('0;default'), undefined);
     assert.equal(darkFromColorFgBg(undefined), undefined);
   });
 

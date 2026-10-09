@@ -173,7 +173,13 @@ export const appGateway = (args: {
     ? new network.WebApplicationFirewallPolicy('appgw-waf-blob', {
         resourceGroupName: args.resourceGroupName,
         location: args.location,
-        policySettings,
+        // Uploads are raw PUT bodies, not multipart: fileUploadLimitInMb does not apply and
+        // the 2000 KB body cap would reject larger files. A file body is not inspectable anyway.
+        policySettings: {
+          ...policySettings,
+          requestBodyCheck: false,
+          requestBodyEnforcement: false,
+        },
         managedRules: {
           managedRuleSets: [
             {
@@ -227,7 +233,9 @@ export const appGateway = (args: {
     sslCertificates: [
       { name: 'listener', data: args.certPfx, password: args.certPassword },
     ],
-    backendAddressPools: pools,
+    // `none` has no targets: the path map's default, so unmatched paths such as the DP
+    // internal /functions/* get a 502 instead of reaching DP.
+    backendAddressPools: [...pools, { name: 'none' }],
     probes: [
       {
         name: 'dp',
@@ -308,7 +316,7 @@ export const appGateway = (args: {
     urlPathMaps: [
       {
         name: 'paths',
-        defaultBackendAddressPool: { id: id('backendAddressPools', 'dp') },
+        defaultBackendAddressPool: { id: id('backendAddressPools', 'none') },
         defaultBackendHttpSettings: {
           id: id('backendHttpSettingsCollection', 'dp'),
         },

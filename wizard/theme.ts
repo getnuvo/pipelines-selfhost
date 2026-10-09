@@ -23,11 +23,15 @@ export const luminance = (rgb: Rgb) => {
 /** Above this, black text contrasts better than white (WCAG): a light background. */
 const LIGHT_THRESHOLD = 0.179;
 
-/** OSC 11 reply, e.g. `\x1b]11;rgb:1e1e/1e1e/1e1e\x07`; channels may have 1–4 hex digits. */
+/**
+ * OSC 11 reply, e.g. `\x1b]11;rgb:1e1e/1e1e/1e1e\x07`; channels may have 1–4 hex digits.
+ * Only a complete reply (ending in BEL or ST, `\x1b\\`) counts: it can arrive split across reads.
+ */
 export const parseOsc11 = (reply: string): Rgb | undefined => {
-  const match = /rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})/i.exec(
-    reply,
-  );
+  const match =
+    /rgb:([0-9a-f]{1,4})\/([0-9a-f]{1,4})\/([0-9a-f]{1,4})(?:\x07|\x1b\\)/i.exec(
+      reply,
+    );
   if (!match) return undefined;
 
   return match
@@ -37,12 +41,32 @@ export const parseOsc11 = (reply: string): Rgb | undefined => {
     ) as Rgb;
 };
 
-/** COLORFGBG="15;0": the last field is the background ANSI color; 7 and 15 are light. */
-export const darkFromColorFgBg = (value?: string) => {
-  const background = value?.split(';').pop();
-  if (!background || !/^\d+$/.test(background)) return undefined;
+/** The 16 ANSI colors in xterm's default palette. */
+const ANSI_PALETTE = [
+  '#000000',
+  '#cd0000',
+  '#00cd00',
+  '#cdcd00',
+  '#0000ee',
+  '#cd00cd',
+  '#00cdcd',
+  '#e5e5e5',
+  '#7f7f7f',
+  '#ff0000',
+  '#00ff00',
+  '#ffff00',
+  '#5c5cff',
+  '#ff00ff',
+  '#00ffff',
+  '#ffffff',
+];
 
-  return !['7', '15'].includes(background);
+/** COLORFGBG="15;0": the last field is the background ANSI color (0–15). */
+export const darkFromColorFgBg = (value?: string) => {
+  const hex = ANSI_PALETTE[Number(value?.split(';').pop() || NaN)];
+  if (!hex) return undefined;
+
+  return luminance(hexToRgb(hex)) < LIGHT_THRESHOLD;
 };
 
 /** Ask the terminal for its background color; undefined when it does not answer in time. */

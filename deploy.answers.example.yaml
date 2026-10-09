@@ -41,15 +41,16 @@ hubMode: existing
 
 # Private DNS: proxy = hub DNS proxy resolves privatelink.*, link = link the zones to the spoke
 dnsMode: proxy
-# The zone IDs can be left out when the zone exists exactly once in the subscriptions you can see.
+# The zone IDs can be left out when the zone exists exactly once in the subscriptions you can see;
+# otherwise uncomment them with your real IDs.
 dnsServers:
   - 10.0.0.4
-privateDnsZone_blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
-privateDnsZone_file: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net
-privateDnsZone_queue: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net
-privateDnsZone_table: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net
-privateDnsZone_vault: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net
-privateDnsZone_sites: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net
+# privateDnsZone_blob: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net
+# privateDnsZone_file: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net
+# privateDnsZone_queue: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net
+# privateDnsZone_table: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net
+# privateDnsZone_vault: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net
+# privateDnsZone_sites: /subscriptions/<sub>/resourceGroups/<hub-rg>/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net
 
 # Access
 apiBaseUrl: https://ingestro.company.local # App Gateway host, used as the embeddables baseUrl
