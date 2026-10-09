@@ -117,13 +117,15 @@ export const discovery = (
 
   return {
     regions: () =>
+      // `az account list-locations` has no --subscription (current subscription only): ask ARM.
       (regions ??= az<Region[]>(
-        'account',
-        'list-locations',
-        '--subscription',
-        subscriptionId,
+        'rest',
+        '--method',
+        'get',
+        '--url',
+        `/subscriptions/${subscriptionId}/locations?api-version=2022-12-01`,
         '--query',
-        "[?metadata.regionType=='Physical'].{name: name, displayName: displayName, geography: metadata.geographyGroup}",
+        "value[?metadata.regionType=='Physical'].{name: name, displayName: displayName, geography: metadata.geographyGroup}",
       ).then((list) =>
         list.sort((a, b) => a.displayName.localeCompare(b.displayName)),
       )),
