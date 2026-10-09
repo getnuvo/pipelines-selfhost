@@ -319,12 +319,12 @@ curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deploy
 
 **WAF policies** (measured on 2026-10-09 against App Gateway WAF v2 with `Microsoft_DefaultRuleSet` 2.1: in Detection mode with the dashboard and embedded components, then in Prevention mode by replaying requests for every API route that carries a body)
 
-Three policies, one per path group, all with the managed rule set `Microsoft_DefaultRuleSet` 2.1. Without them, Prevention mode blocks the dashboard as soon as a page loads: every embedded component calls `/component/*/verify` with a cross-origin `meta.origin` and a `session_id`, which scores 10 (threshold 5).
+Three policies, one per path group, all with the managed rule set `Microsoft_DefaultRuleSet` 2.1. A request the WAF blocks gets a 403 without CORS headers, and query-string matches also block the CORS preflight, so in the browser a WAF block shows up as a CORS error. Without the exclusions, Prevention mode blocks the dashboard as soon as a page loads: every embedded component calls `/component/*/verify` with a cross-origin `meta.origin` and a `session_id`, which scores 10 (threshold 5).
 
 | Policy          | Applies to                | Request body inspection                                          | Other settings                       |
 | --------------- | ------------------------- | ---------------------------------------------------------------- | ------------------------------------ |
-| `ingestro-api`  | `/dp/*` (everything else) | On, inspect limit and max body 2000 KB, body size enforced       | The seven exclusions below           |
-| `ingestro-data` | The four data path rules  | **Off** (`request_body_check = false`, no body size enforcement) | The seven exclusions below           |
+| `ingestro-api`  | `/dp/*` (everything else) | On, inspect limit and max body 2000 KB, body size enforced       | The eight exclusions below           |
+| `ingestro-data` | The four data path rules  | **Off** (`request_body_check = false`, no body size enforcement) | The eight exclusions below           |
 | `ingestro-blob` | `/blob/*`                 | On                                                               | Rule **920420** disabled (see below) |
 
 **Why the data paths skip body inspection.** Their bodies are user content by design: spreadsheet rows from the uploaded files (keyed by the file's own column names, so no field-level exclusion can be written in advance), transformation JavaScript and spreadsheet formulas, and AI prompts. In our measurement those requests scored 33 to 78 and tripped rules in the RCE (932100, 932130, 932140), XSS (941320, 941330), SQLI (about 20 rules from 942100 to 942480), LFI (930110), RFI (931130), protocol attack (921130) and MS-ThreatIntel-SQLI (99031001 to 99031004) groups, under field names such as `function`, `prompt`, `cleanings.<row>.<column>` or the column names themselves. Rows larger than 2000 KB (the API accepts up to 6 MB) would also be rejected by the WAF body size limit. On these paths the WAF still inspects the URL, query string and headers, and every endpoint requires an Ingestro access token. Please have your security team review this trade-off.
@@ -333,15 +333,16 @@ Three policies, one per path group, all with the managed rule set `Microsoft_Def
 
 **Exclusions** (on `ingestro-api` and `ingestro-data`)
 
-| Match variable    | Operator   | Selector                   | Rule group: rules       | Why                                                        |
-| ----------------- | ---------- | -------------------------- | ----------------------- | ---------------------------------------------------------- |
-| `RequestArgNames` | Equals     | `meta.origin`              | RFI: 931130             | The dashboard's origin URL in every component call         |
-| `RequestArgNames` | Equals     | `url`                      | RFI: 931130             | Webhook target URL                                         |
-| `RequestArgNames` | StartsWith | `configuration.`           | RFI: 931130             | Connector source URLs (HTTP URL, OAuth refresh URL)        |
-| `RequestArgKeys`  | Equals     | `session_id`               | FIX: 943110             | Component session ID sent from a cross-origin dashboard    |
-| `RequestArgNames` | Equals     | `options`                  | SQLI: whole group       | JSON-encoded query parameter of `GET /connector/:id/data`  |
-| `RequestArgNames` | StartsWith | `columns.`                 | SQLI, XSS: whole groups | Target data model descriptions, labels, validation regexes |
-| `RequestArgNames` | StartsWith | `settings.i18n_overrides.` | SQLI, XSS: whole groups | Free-text labels of the embedded components                |
+| Match variable    | Operator   | Selector                   | Rule group: rules       | Why                                                                               |
+| ----------------- | ---------- | -------------------------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `RequestArgNames` | Equals     | `meta.origin`              | RFI: 931130             | The dashboard's origin URL in every component call                                |
+| `RequestArgNames` | Equals     | `url`                      | RFI: 931130             | Webhook target URL                                                                |
+| `RequestArgNames` | StartsWith | `configuration.`           | RFI: 931130             | Connector source URLs (HTTP URL, OAuth refresh URL)                               |
+| `RequestArgKeys`  | Equals     | `session_id`               | FIX: 943110             | Component session ID sent from a cross-origin dashboard                           |
+| `RequestArgKeys`  | StartsWith | `filters`                  | SQLI: 942290            | MongoDB-style list filters in the query string, e.g. `filters[$and][0][pipeline]` |
+| `RequestArgNames` | Equals     | `options`                  | SQLI: whole group       | JSON-encoded query parameter of `GET /connector/:id/data`                         |
+| `RequestArgNames` | StartsWith | `columns.`                 | SQLI, XSS: whole groups | Target data model descriptions, labels, validation regexes                        |
+| `RequestArgNames` | StartsWith | `settings.i18n_overrides.` | SQLI, XSS: whole groups | Free-text labels of the embedded components                                       |
 
 If you run OWASP CRS 3.2 instead of the Default Rule Set 2.1, the rule IDs are the same but the group names differ (for example `REQUEST-931-APPLICATION-ATTACK-RFI`); tell us and we re-validate.
 
@@ -355,6 +356,7 @@ locals {
     { variable = "RequestArgNames", operator = "Equals", selector = "url", groups = { RFI = ["931130"] } },
     { variable = "RequestArgNames", operator = "StartsWith", selector = "configuration.", groups = { RFI = ["931130"] } },
     { variable = "RequestArgKeys", operator = "Equals", selector = "session_id", groups = { FIX = ["943110"] } },
+    { variable = "RequestArgKeys", operator = "StartsWith", selector = "filters", groups = { SQLI = ["942290"] } },
     { variable = "RequestArgNames", operator = "Equals", selector = "options", groups = { SQLI = [] } },
     { variable = "RequestArgNames", operator = "StartsWith", selector = "columns.", groups = { SQLI = [], XSS = [] } },
     { variable = "RequestArgNames", operator = "StartsWith", selector = "settings.i18n_overrides.", groups = { SQLI = [], XSS = [] } },

@@ -49,6 +49,14 @@ const EXCLUSIONS: {
     groups: { FIX: ['943110'] },
   },
   {
+    // MongoDB-style list filters in the query string, e.g. `filters[$and][0][pipeline]`
+    // (GET /execution); a block here also fails the CORS preflight.
+    variable: 'RequestArgKeys',
+    operator: 'StartsWith',
+    selector: 'filters',
+    groups: { SQLI: ['942290'] },
+  },
+  {
     // JSON-encoded `options` query parameter (GET /connector/:id/data).
     variable: 'RequestArgNames',
     operator: 'Equals',
