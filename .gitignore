@@ -20,3 +20,6 @@ temp/*
 !temp/.gitkeep
 Pulumi.*.*
 !Pulumi.dev.yaml.example
+!Pulumi.azure-docker.yaml.example
+# deploy.sh answers files (copied from deploy.answers.example.yaml)
+*.answers.yaml

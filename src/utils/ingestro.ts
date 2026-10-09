@@ -3,7 +3,10 @@ import { default as axios } from 'axios';
 
 const config = new pulumi.Config();
 const codePipelineVersion = config.get('version') || '1.0.0';
-const provider = config.require('provider')?.toUpperCase() || 'AWS';
+const configuredProvider = config.require('provider')?.toUpperCase() || 'AWS';
+// azure-docker uses the Azure self-host license payload; the API only accepts AWS | AZURE.
+const provider =
+  configuredProvider === 'AZURE-DOCKER' ? 'AZURE' : configuredProvider;
 const selfHostDeploymentUrl =
   config.get('selfHostDeploymentUrl') ||
   'https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment';
