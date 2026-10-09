@@ -317,7 +317,7 @@ curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deploy
 - Embeddables `baseUrl` = the App Gateway host only, e.g. `https://ingestro-dev.company.local` (no `/dp`; the SDK appends `/dp/api/v1`).
 - Your backend requests user access tokens from `https://<app gateway host>/dp/api/v1/access/token` with the environment's license key.
 
-**WAF policies** (measured on 2026-10-09 against App Gateway WAF v2 with `Microsoft_DefaultRuleSet` 2.1: in Detection mode with the dashboard and embedded components, then in Prevention mode by replaying requests for every API route that carries a body)
+**WAF policies** (measured on 2026-10-09 against App Gateway WAF v2 with `Microsoft_DefaultRuleSet` 2.1: in Detection mode with the dashboard and embedded components, then in Prevention mode with the dashboard and by replaying requests for every API route that carries a body)
 
 Three policies, one per path group, all with the managed rule set `Microsoft_DefaultRuleSet` 2.1. A request the WAF blocks gets a 403 without CORS headers, and query-string matches also block the CORS preflight, so in the browser a WAF block shows up as a CORS error. Without the exclusions, Prevention mode blocks the dashboard as soon as a page loads: every embedded component calls `/component/*/verify` with a cross-origin `meta.origin` and a `session_id`, which scores 10 (threshold 5).
 
