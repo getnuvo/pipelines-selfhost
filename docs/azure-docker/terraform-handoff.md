@@ -296,11 +296,18 @@ curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deploy
 
 **Routing (path-based rule on the Ingestro listener)**
 
-| Path          | Backend                                                                                                                                            | Notes                                                            |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `/dp/*`       | DP Function App                                                                                                                                    | API, health probe, embedded UI calls                             |
-| `/blob/*`     | Blob Private Endpoint `<storage account>.blob.core.windows.net` (HTTPS 443, host header override to that name), with a rewrite that strips `/blob` | Only with Blob option A                                          |
-| anything else | none (default rule: 404 / redirect)                                                                                                                | Keeps the DP internal routes `/functions/*` and the root private |
+| Path rule (in this order)                                                                              | Backend                                                                                                        | WAF policy                  | Notes                                                            |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------- |
+| `/dp/api/v1/transformation*`, `/dp/api/v1/pipeline*`, `/dp/api/v1/execution*`, `/dp/api/v1/connector*` | DP Function App                                                                                                | `ingestro-data` (see below) | Endpoints that carry user data and transformation code           |
+| `/dp/*`                                                                                                | DP Function App                                                                                                | `ingestro-api`              | Everything else: API, health probe, embedded UI calls            |
+| `/blob/*`                                                                                              | Blob Private Endpoint `<storage account>.blob.core.windows.net` (HTTPS 443, host header override to that name) | `ingestro-blob`             | Only with Blob option A; needs the rewrite rule below            |
+| anything else                                                                                          | none (default rule: 404 / redirect)                                                                            | —                           | Keeps the DP internal routes `/functions/*` and the root private |
+
+**Rewrite rule for `/blob/*`** (Blob option A only), attached to the `/blob/*` path rule:
+
+- Condition: `var_uri_path` matches `^/blob(/.*)$` (ignore case).
+- URL path: `{var_uri_path_1}` (strips `/blob`), no re-evaluation of the path map.
+- **Request header `x-ms-blob-type: BlockBlob`.** Azure Blob rejects a file upload (Put Blob) without it with `400 MissingRequiredHeader`, and uploads through `/blob/*` arrive without it. Downloads (export files) work with the header set.
 
 - **Do not route to the Mapping Web App.** It is internal to the spoke (DP → mapping); exposing it adds attack surface and serves no client.
 - **Do not route `/functions/*`.** These are DP's internal function endpoints (called by DP itself with `x-functions-key`).
@@ -310,7 +317,141 @@ curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deploy
 - Embeddables `baseUrl` = the App Gateway host only, e.g. `https://ingestro-dev.company.local` (no `/dp`; the SDK appends `/dp/api/v1`).
 - Your backend requests user access tokens from `https://<app gateway host>/dp/api/v1/access/token` with the environment's license key.
 
-**WAF policy:** the exclusions for the upload and payload endpoints are an [open item](#12-open-items). We are measuring which managed rules the Ingestro requests trigger and will deliver the exact rule IDs and request-attribute exclusions per path. If you use Blob option A, the same policy also covers `/blob/*` (file bodies), which usually needs request body inspection limits or exclusions on that path.
+**WAF policies** (measured on 2026-10-09 against App Gateway WAF v2 with `Microsoft_DefaultRuleSet` 2.1: in Detection mode with the dashboard and embedded components, then in Prevention mode by replaying requests for every API route that carries a body)
+
+Three policies, one per path group, all with the managed rule set `Microsoft_DefaultRuleSet` 2.1. Without them, Prevention mode blocks the dashboard as soon as a page loads: every embedded component calls `/component/*/verify` with a cross-origin `meta.origin` and a `session_id`, which scores 10 (threshold 5).
+
+| Policy          | Applies to                | Request body inspection                                          | Other settings                       |
+| --------------- | ------------------------- | ---------------------------------------------------------------- | ------------------------------------ |
+| `ingestro-api`  | `/dp/*` (everything else) | On, inspect limit and max body 2000 KB, body size enforced       | The seven exclusions below           |
+| `ingestro-data` | The four data path rules  | **Off** (`request_body_check = false`, no body size enforcement) | The seven exclusions below           |
+| `ingestro-blob` | `/blob/*`                 | On                                                               | Rule **920420** disabled (see below) |
+
+**Why the data paths skip body inspection.** Their bodies are user content by design: spreadsheet rows from the uploaded files (keyed by the file's own column names, so no field-level exclusion can be written in advance), transformation JavaScript and spreadsheet formulas, and AI prompts. In our measurement those requests scored 33 to 78 and tripped rules in the RCE (932100, 932130, 932140), XSS (941320, 941330), SQLI (about 20 rules from 942100 to 942480), LFI (930110), RFI (931130), protocol attack (921130) and MS-ThreatIntel-SQLI (99031001 to 99031004) groups, under field names such as `function`, `prompt`, `cleanings.<row>.<column>` or the column names themselves. Rows larger than 2000 KB (the API accepts up to 6 MB) would also be rejected by the WAF body size limit. On these paths the WAF still inspects the URL, query string and headers, and every endpoint requires an Ingestro access token. Please have your security team review this trade-off.
+
+**Why `/blob/*` disables 920420.** It carries the uploaded file as-is (`.xlsx`, `.csv`, ...). Rule 920420 only allows the JSON, XML and form content types and blocks every upload. Write access needs the short-lived SAS token issued by the API.
+
+**Exclusions** (on `ingestro-api` and `ingestro-data`)
+
+| Match variable    | Operator   | Selector                   | Rule group: rules       | Why                                                        |
+| ----------------- | ---------- | -------------------------- | ----------------------- | ---------------------------------------------------------- |
+| `RequestArgNames` | Equals     | `meta.origin`              | RFI: 931130             | The dashboard's origin URL in every component call         |
+| `RequestArgNames` | Equals     | `url`                      | RFI: 931130             | Webhook target URL                                         |
+| `RequestArgNames` | StartsWith | `configuration.`           | RFI: 931130             | Connector source URLs (HTTP URL, OAuth refresh URL)        |
+| `RequestArgKeys`  | Equals     | `session_id`               | FIX: 943110             | Component session ID sent from a cross-origin dashboard    |
+| `RequestArgNames` | Equals     | `options`                  | SQLI: whole group       | JSON-encoded query parameter of `GET /connector/:id/data`  |
+| `RequestArgNames` | StartsWith | `columns.`                 | SQLI, XSS: whole groups | Target data model descriptions, labels, validation regexes |
+| `RequestArgNames` | StartsWith | `settings.i18n_overrides.` | SQLI, XSS: whole groups | Free-text labels of the embedded components                |
+
+If you run OWASP CRS 3.2 instead of the Default Rule Set 2.1, the rule IDs are the same but the group names differ (for example `REQUEST-931-APPLICATION-ATTACK-RFI`); tell us and we re-validate.
+
+**Terraform (azurerm) sketch**
+
+```hcl
+locals {
+  waf_rule_set = { type = "Microsoft_DefaultRuleSet", version = "2.1" }
+  waf_exclusions = [
+    { variable = "RequestArgNames", operator = "Equals", selector = "meta.origin", groups = { RFI = ["931130"] } },
+    { variable = "RequestArgNames", operator = "Equals", selector = "url", groups = { RFI = ["931130"] } },
+    { variable = "RequestArgNames", operator = "StartsWith", selector = "configuration.", groups = { RFI = ["931130"] } },
+    { variable = "RequestArgKeys", operator = "Equals", selector = "session_id", groups = { FIX = ["943110"] } },
+    { variable = "RequestArgNames", operator = "Equals", selector = "options", groups = { SQLI = [] } },
+    { variable = "RequestArgNames", operator = "StartsWith", selector = "columns.", groups = { SQLI = [], XSS = [] } },
+    { variable = "RequestArgNames", operator = "StartsWith", selector = "settings.i18n_overrides.", groups = { SQLI = [], XSS = [] } },
+  ]
+  # name => body inspection
+  waf_policies = { "ingestro-api" = true, "ingestro-data" = false }
+}
+
+resource "azurerm_web_application_firewall_policy" "ingestro" {
+  for_each            = local.waf_policies
+  name                = each.key
+  resource_group_name = var.hub_resource_group_name
+  location            = var.location
+
+  policy_settings {
+    enabled                          = true
+    mode                             = "Prevention"
+    request_body_check               = each.value
+    request_body_enforcement         = each.value
+    request_body_inspect_limit_in_kb = 2000
+    max_request_body_size_in_kb      = 2000
+    file_upload_limit_in_mb          = 100
+  }
+
+  managed_rules {
+    managed_rule_set {
+      type    = local.waf_rule_set.type
+      version = local.waf_rule_set.version
+    }
+
+    dynamic "exclusion" {
+      for_each = local.waf_exclusions
+      content {
+        match_variable          = exclusion.value.variable
+        selector_match_operator = exclusion.value.operator
+        selector                = exclusion.value.selector
+        excluded_rule_set {
+          type    = local.waf_rule_set.type
+          version = local.waf_rule_set.version
+          dynamic "rule_group" {
+            for_each = exclusion.value.groups
+            content {
+              rule_group_name = rule_group.key
+              # Empty list = the whole group.
+              excluded_rules  = length(rule_group.value) > 0 ? rule_group.value : null
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "azurerm_web_application_firewall_policy" "ingestro_blob" {
+  name                = "ingestro-blob"
+  resource_group_name = var.hub_resource_group_name
+  location            = var.location
+
+  policy_settings {
+    enabled = true
+    mode    = "Prevention"
+  }
+
+  managed_rules {
+    managed_rule_set {
+      type    = local.waf_rule_set.type
+      version = local.waf_rule_set.version
+      rule_group_override {
+        rule_group_name = "PROTOCOL-ENFORCEMENT"
+        rule {
+          id      = "920420"
+          enabled = false
+        }
+      }
+    }
+  }
+}
+
+# In azurerm_application_gateway:
+#   url_path_map { ...
+#     path_rule { name = "ingestro-data", paths = ["/dp/api/v1/transformation*", "/dp/api/v1/pipeline*", "/dp/api/v1/execution*", "/dp/api/v1/connector*"],
+#                 backend_address_pool_name = "ingestro-dp", backend_http_settings_name = "ingestro-dp",
+#                 firewall_policy_id = azurerm_web_application_firewall_policy.ingestro["ingestro-data"].id }
+#     path_rule { name = "ingestro-api", paths = ["/dp/*"], ..., firewall_policy_id = azurerm_web_application_firewall_policy.ingestro["ingestro-api"].id }
+#     path_rule { name = "ingestro-blob", paths = ["/blob/*"], ..., rewrite_rule_set_name = "ingestro-blob",
+#                 firewall_policy_id = azurerm_web_application_firewall_policy.ingestro_blob.id }
+#   }
+#   rewrite_rule_set { name = "ingestro-blob"
+#     rewrite_rule { name = "strip-blob", rule_sequence = 100
+#       condition { variable = "var_uri_path", pattern = "^/blob(/.*)$", ignore_case = true }
+#       request_header_configuration { header_name = "x-ms-blob-type", header_value = "BlockBlob" }
+#       url { path = "{var_uri_path_1}", reroute = false }
+#     }
+#   }
+```
+
+Start in Detection mode if you prefer, check `AGWFirewallLogs` during your acceptance test, then switch to Prevention. Send us any `Matched` entries on Ingestro paths that are not covered here (rule ID, request URI, `DetailedData`), and we extend the list.
 
 ## 10. Firewall and DNS
 
@@ -353,13 +494,13 @@ Recommended baseline:
 
 ## 12. Open items
 
-| #   | Item                                                                                             | Owner                   | Status                                                               |
-| --- | ------------------------------------------------------------------------------------------------ | ----------------------- | -------------------------------------------------------------------- |
-| 1   | WAF exclusion rule IDs for the upload / payload endpoints (and `/blob/*` if used)                | Ingestro                | Being measured against WAF v2                                        |
-| 2   | Image source                                                                                     | Customer, with Ingestro | **Decided:** your ACR (import from Docker Hub with the registry key) |
-| 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys | Ingestro                | Per release                                                          |
-| 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                              | Customer                | To confirm                                                           |
-| 5   | AI provider for the mapping module (Azure OpenAI recommended)                                    | Customer                | To confirm                                                           |
+| #   | Item                                                                                             | Owner                   | Status                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 1   | WAF exclusion rule IDs for the upload / payload endpoints (and `/blob/*` if used)                | Ingestro                | **Done:** see [section 9](#9-application-gateway-and-waf); your security team to accept the data-path trade-off |
+| 2   | Image source                                                                                     | Customer, with Ingestro | **Decided:** your ACR (import from Docker Hub with the registry key)                                            |
+| 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys | Ingestro                | Per release                                                                                                     |
+| 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                              | Customer                | To confirm                                                                                                      |
+| 5   | AI provider for the mapping module (Azure OpenAI recommended)                                    | Customer                | To confirm                                                                                                      |
 
 ## 13. Deployment order, permissions and verification
 
