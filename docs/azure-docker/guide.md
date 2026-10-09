@@ -94,7 +94,7 @@ The wizard asks which one you use:
 | `privatelink.vaultcore.azure.net`    | Key Vault                                            |
 | `privatelink.azurewebsites.net`      | Function App and mapping app                         |
 
-Every Private Endpoint registers its address in these zones, so they are needed with both DNS options:
+The deployment's Private Endpoints (Function App, mapping app, Storage, Key Vault) register their addresses in these zones, so they are needed with both DNS options. The Atlas endpoint does not use them ([section 5](#5-mongodb-atlas)).
 
 - **DNS proxy in the hub** (e.g. Azure Firewall DNS proxy): the spoke uses its IP as DNS server; nothing is created in the hub.
 - **No DNS proxy:** the deployment links the six zones to the spoke VNet. The zones must already exist.
@@ -156,10 +156,14 @@ At the end it prints how to reach the API from your machine:
    ```bash
    ssh -i ~/.ssh/<key> -N -D 1080 ingestro@<jump VM public IP>
    ```
-2. Start a browser that uses it:
+2. Start a browser that uses it (macOS, then Linux):
    ```bash
    open -na "Google Chrome" --args --user-data-dir=/tmp/chrome-ingestro --proxy-server="socks5://localhost:1080"
    ```
+   ```bash
+   google-chrome --user-data-dir=/tmp/chrome-ingestro --proxy-server="socks5://localhost:1080"
+   ```
+   On WSL, start Chrome on the Windows side with the same two flags, or any browser set to the SOCKS5 proxy `localhost:1080`.
 3. In that browser, open the Ingestro dashboard and set the base URL to `https://<functionAppHostname>` (printed by the wizard). `https://<functionAppHostname>/dp/api/v1/management/health` returns `{"data":{"message":"OK"}}`.
 
 The test hub and the spoke cost money while they run (App Service plans, VMs): remove them with `./deploy.sh destroy` ([section 9](#9-teardown)).

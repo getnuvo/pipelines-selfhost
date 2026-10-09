@@ -79,6 +79,9 @@ const queryBackground = (timeoutMs = 200) =>
     const finish = (rgb?: Rgb) => {
       clearTimeout(timer);
       stdin.off('data', onData);
+      // Give back anything typed meanwhile: only the terminal's reply is consumed.
+      const typed = reply.replace(/\x1b\]11;[^\x07\x1b]*(?:\x07|\x1b\\)?/, '');
+      if (typed) stdin.unshift(Buffer.from(typed));
       stdin.setRawMode(wasRaw);
       stdin.pause();
       resolve(rgb);

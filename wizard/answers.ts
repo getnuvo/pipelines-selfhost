@@ -43,6 +43,11 @@ export const loadAnswers = (file: string): Answers => {
     let answer: Answer | undefined;
     if (Array.isArray(value) && META_KEYS.includes(key)) {
       errors.push(`${key}: expected a single value.`);
+    } else if (
+      Array.isArray(value) &&
+      QUESTIONS.find((q) => q.key === key)?.kind !== 'list'
+    ) {
+      errors.push(`${key}: expected a single value.`);
     } else if (Array.isArray(value)) {
       answer = value
         .map((item) => resolve(String(item), key, errors))

@@ -112,6 +112,16 @@ export const run = () => {
   // The App Gateway URL clients use as baseUrl, e.g. https://ingestro.company.local. The Function
   // App itself is private, so `endpoint` is only exported when this is set.
   const apiBaseUrl = config.get('apiBaseUrl');
+  // Host only: the embeddable SDKs append /dp/api/v1 themselves (the wizard checks the same).
+  if (
+    apiBaseUrl &&
+    (!URL.canParse(apiBaseUrl) ||
+      new URL(apiBaseUrl).origin !== apiBaseUrl.replace(/\/$/, ''))
+  ) {
+    throw new Error(
+      `apiBaseUrl must be the App Gateway origin only, e.g. https://ingestro.company.local (got ${apiBaseUrl}).`,
+    );
+  }
 
   // May hold credentials, so it is read and passed on as a secret.
   const mappingModuleEnv =

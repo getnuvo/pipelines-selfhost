@@ -288,7 +288,7 @@ const handOver = (out: SpokeOutputs, answers: Answers) => {
   table([
     [
       'Route',
-      `the spoke's app subnet sends 0.0.0.0/0 to ${answers.firewallPrivateIp} (created by this deployment)`,
+      `the spoke's app subnet sends 0.0.0.0/0 to your hub firewall ${answers.firewallPrivateIp} (route table created by this deployment)`,
     ],
     [
       'Allow',
@@ -345,8 +345,12 @@ const testHubSteps = (
   info('  1. Open a tunnel through the jump VM (keep it running):');
   info(`     ssh -i ${privateKey} -N -D 1080 ingestro@${hub['jumpPublicIp']}`);
   info('  2. Start a browser that uses it:');
+  const browserFlags =
+    '--user-data-dir=/tmp/chrome-ingestro --proxy-server="socks5://localhost:1080"';
   info(
-    '     open -na "Google Chrome" --args --user-data-dir=/tmp/chrome-ingestro --proxy-server="socks5://localhost:1080"',
+    process.platform === 'darwin'
+      ? `     open -na "Google Chrome" --args ${browserFlags}`
+      : `     google-chrome ${browserFlags}`,
   );
   info(
     `  3. Base URL for the dashboard / embeddables: https://${out['functionAppHostname']}`,
@@ -588,8 +592,7 @@ const main = async () => {
 
   if (!hasChanges(summary) && !hubChanges) {
     ok('Already up to date.');
-    if (!atlasPending) return;
-    // Resuming the Atlas second round: the endpoint already exists.
+    // Still show the summary below (tunnel, hand-over), or resume the Atlas second round.
     out = unwrap(await stack.outputs())['azureDocker'] as SpokeOutputs;
   } else {
     if (batch && !args.yes)

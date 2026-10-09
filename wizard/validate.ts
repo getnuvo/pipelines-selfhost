@@ -172,10 +172,12 @@ export const mongoUri: Validator = (value) =>
 
 // Storage account and Key Vault names are built from prefix + environment (see src/azure-docker.ts).
 export const azureNameParts = (prefix: string, environment: string) => {
-  if (!/^[a-z][a-z0-9-]*$/.test(prefix))
-    return 'prefix: lowercase letters, digits and dashes, starting with a letter.';
-  if (!/^[a-z][a-z0-9-]*$/.test(environment))
-    return 'environment: lowercase letters, digits and dashes, starting with a letter.';
+  // Dashes only between letters/digits: Key Vault names reject "--" and a trailing "-".
+  const part = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+  if (!part.test(prefix))
+    return 'prefix: lowercase letters and digits, starting with a letter, single dashes in between.';
+  if (!part.test(environment))
+    return 'environment: lowercase letters and digits, starting with a letter, single dashes in between.';
   const storageAccount = `${prefix}${environment}sa`.replace(/[^a-z0-9]/g, '');
   const keyVault = `${prefix}-${environment}-kv`;
   if (storageAccount.length > 16 || keyVault.length > 16)

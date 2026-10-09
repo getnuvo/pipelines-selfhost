@@ -109,6 +109,9 @@ describe('azureNameParts', () => {
     assert.equal(azureNameParts('ingestro', 'dev'), ok);
     assert.match(azureNameParts('ingestro', 'production') ?? '', /too long/);
     assert.match(azureNameParts('Ingestro', 'dev') ?? '', /lowercase/);
+    assert.equal(azureNameParts('in-gest', 'dev-1'), ok);
+    assert.match(azureNameParts('ingestro-', 'dev') ?? '', /single dashes/);
+    assert.match(azureNameParts('ing', 'd--ev') ?? '', /single dashes/);
   });
 });
 

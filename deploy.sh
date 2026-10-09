@@ -8,7 +8,14 @@
 # Checks the tools, installs the npm dependencies, then starts the wizard (wizard/index.ts).
 # Safe to re-run: nothing is reinstalled, and the wizard resumes from the stack config.
 set -euo pipefail
-cd "$(dirname "$0")"
+# Run from the repo, also when started through a symlink (e.g. one on the PATH).
+script="$0"
+while [ -L "$script" ]; do
+  dir="$(cd -P "$(dirname "$script")" && pwd)"
+  script="$(readlink "$script")"
+  case "$script" in /*) ;; *) script="$dir/$script" ;; esac
+done
+cd -P "$(dirname "$script")"
 
 BATCH=0
 HELP=0
@@ -31,7 +38,14 @@ if [ "$HELP" = 1 ] && [ ! -x node_modules/.bin/tsx ]; then
 fi
 
 say() { printf '%s\n' "$*"; }
-die() { printf '\033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
+die() {
+  if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+    printf '\033[31m✗\033[0m %s\n' "$*" >&2
+  else
+    printf '✗ %s\n' "$*" >&2
+  fi
+  exit 1
+}
 
 # Offer to run an install command, unless in batch mode (then just fail with it).
 offer() {

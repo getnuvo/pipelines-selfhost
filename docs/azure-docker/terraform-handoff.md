@@ -471,6 +471,8 @@ Start in Detection mode if you prefer, check `AGWFirewallLogs` during your accep
 | `api.brevo.com`                                 | Only if Brevo is configured                                                                                         |
 | Your pipeline data sources and destinations     | Input and output connectors                                                                                         |
 
+Docker Hub is not on this list: the apps pull from your ACR ([section 8](#8-container-images)), and only the import pipeline reaches Docker Hub.
+
 Ingestro does not collect telemetry from self-hosted deployments.
 
 **DNS**

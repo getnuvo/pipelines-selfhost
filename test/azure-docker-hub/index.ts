@@ -208,7 +208,7 @@ write_files:
       [Service]
       Type=oneshot
       RemainAfterExit=yes
-      ExecStart=/bin/sh -c '/usr/sbin/iptables -t nat -C POSTROUTING -s ${spokeAddressSpace} -o eth0 -j MASQUERADE || /usr/sbin/iptables -t nat -A POSTROUTING -s ${spokeAddressSpace} -o eth0 -j MASQUERADE'
+      ExecStart=/bin/sh -c '/usr/sbin/iptables -t nat -C POSTROUTING ! -d 10.29.0.0/16 -o eth0 -j MASQUERADE || /usr/sbin/iptables -t nat -A POSTROUTING ! -d 10.29.0.0/16 -o eth0 -j MASQUERADE'
       [Install]
       WantedBy=multi-user.target
 runcmd:

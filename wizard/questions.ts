@@ -172,7 +172,9 @@ export const QUESTIONS: Question[] = [
       checkLicense(
         value,
         String(a.version),
-        a.selfHostDeploymentUrl as string | undefined,
+        // A blank override means the default, as in src/utils/ingestro.ts.
+        (a.selfHostDeploymentUrl as string | undefined) ||
+          selfHostUrlFor(String(a.version)),
       ),
   },
 
@@ -210,7 +212,9 @@ export const QUESTIONS: Question[] = [
     message: 'Mapping Web App plan',
     default: () => 'P1v3',
     validate: () => (value) =>
-      /^P\dv[23]$/.test(value) ? undefined : 'Premium v2/v3 SKU, e.g. P1v3.',
+      /^(?:P[0-3]v3|P[1-5]mv3|P[1-3]v2)$/.test(value)
+        ? undefined
+        : 'A Premium v2/v3 SKU: P0v3–P3v3, P1mv3–P5mv3 or P1v2–P3v2.',
   },
 
   // ---- Network ----

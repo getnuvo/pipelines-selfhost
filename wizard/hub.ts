@@ -1,5 +1,11 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
@@ -57,7 +63,15 @@ export const sshPublicKeys = () => {
 
 /** Read the public key; generate the wizard's key pair when that is the one chosen. */
 export const loadSshPublicKey = async (file: string) => {
-  if (!existsSync(file) && file === `${DEFAULT_SSH_KEY}.pub`) {
+  if (
+    !existsSync(file) &&
+    file === `${DEFAULT_SSH_KEY}.pub` &&
+    existsSync(DEFAULT_SSH_KEY)
+  ) {
+    // The private key is there without its .pub: derive it rather than overwrite the key.
+    const { stdout } = await run('ssh-keygen', ['-y', '-f', DEFAULT_SSH_KEY]);
+    writeFileSync(file, stdout, { mode: 0o644 });
+  } else if (!existsSync(file) && file === `${DEFAULT_SSH_KEY}.pub`) {
     info(dim(`  generating SSH key ${DEFAULT_SSH_KEY}...`));
     mkdirSync(sshDir, { recursive: true, mode: 0o700 });
     await run('ssh-keygen', [

@@ -267,3 +267,13 @@ describe('self-host deployment API', () => {
     );
   });
 });
+
+describe('plan overrides', () => {
+  it('accepts only App Service SKUs that exist', () => {
+    const check = question('mappingPlanSku').validate!({});
+    for (const sku of ['P0v3', 'P1v3', 'P3v3', 'P1mv3', 'P5mv3', 'P2v2'])
+      assert.equal(check(sku), undefined, sku);
+    for (const sku of ['P9v3', 'P4v3', 'P0v2', 'P1v4', 'S1'])
+      assert.ok(check(sku), sku);
+  });
+});

@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import {
   LocalWorkspace,
+  StackNotFoundError,
   type OpMap,
   type OutputMap,
   type Stack,
@@ -32,7 +33,11 @@ export const stackNames = async () =>
 /** The stack if it exists; a new stack is only created once the answers are valid. */
 export const findStack = (stackName: string) =>
   LocalWorkspace.selectStack({ stackName, workDir: WORK_DIR }).catch(
-    () => undefined,
+    (err: unknown) => {
+      // Only a missing stack is "new"; a backend or passphrase error must not look like one.
+      if (err instanceof StackNotFoundError) return undefined;
+      throw err;
+    },
   );
 
 export const createStack = (stackName: string) =>

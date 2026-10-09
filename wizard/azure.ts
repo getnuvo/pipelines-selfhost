@@ -31,7 +31,9 @@ export interface Subscription {
 export const currentAccount = async () => {
   try {
     return await az<Subscription>('account', 'show');
-  } catch {
+  } catch (err) {
+    // Only a missing login gets the login hint; any other az failure is shown as is.
+    if (!/az login/i.test((err as Error).message)) throw err;
     throw new WizardError(
       'Azure CLI is not logged in. Run `az login` (add `--tenant <tenant-id>` for a specific tenant) and start again.',
     );
