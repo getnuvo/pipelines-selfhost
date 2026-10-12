@@ -77,6 +77,12 @@ describe('resourceId', () => {
     assert.equal(zone(id('privatelink.blob.core.windows.net')), ok);
     assert.match(zone(id('privatelink.file.core.windows.net')) ?? '', /blob/);
     assert.match(zone('/subscriptions/x/privateDnsZones/y') ?? '', /Expected/);
+    assert.match(
+      zone(
+        `/subscriptions/${'-'.repeat(36)}/resourceGroups/hub-rg/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net`,
+      ) ?? '',
+      /Expected/,
+    );
   });
 });
 

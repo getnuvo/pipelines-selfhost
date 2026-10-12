@@ -3,7 +3,7 @@
 `provider: azure-docker` deploys the Ingestro Pipelines backend inside a **private spoke VNet**:
 
 - DP runs on an **Azure Function App (Linux custom container)**; the mapping module runs on a Web App.
-- Both apps are reachable only through Private Endpoints. Nothing gets a public IP; public network access is disabled on the apps, the Storage account and the Key Vault.
+- Both apps are reachable only through Private Endpoints. Nothing in the spoke gets a public IP; public network access is disabled on the apps, the Storage account and the Key Vault. (The optional test hub in [section 4](#4-try-it-with-the-test-hub) has public IPs on its NVA and jump VM.)
 - Users reach the API through your App Gateway, and all egress from the apps goes through your Azure Firewall.
 
 A wizard, `./deploy.sh`, deploys and updates it, can create a **test hub** for evaluation, walks through the MongoDB Atlas Private Endpoint, and removes everything again.
@@ -194,6 +194,8 @@ With your existing hub, the wizard ends with this list, filled in with the deplo
 
 **1. Peering** between the hub VNet and the spoke VNet (`spokeVnetId`, address space `spokeAddressSpace` in the stack outputs): both directions, forwarded traffic allowed on the hub side. Restart the two apps after the peering and the firewall rules are in place, so they pull their images.
 
+<a id="firewall-rules"></a>
+
 **2. Azure Firewall**
 
 The deployment routes the app subnet's `0.0.0.0/0` to the firewall private IP you entered.
@@ -250,7 +252,7 @@ From a host inside the network (with the test hub: through the SSH tunnel or on 
 
 - **Upgrade:** `./deploy.sh` → review and edit → new Pipelines / mapping version → deploy. **Rollback:** the same with the previous version.
 - **Secrets** (license key, connection string, API keys): change them through the wizard (or `pulumi config set --secret` + `pulumi up`). The apps reference the exact secret version, so they pick up the new one on that deployment; a restart alone does not.
-- **Logs:** Log Analytics workspace (`logAnalyticsWorkspaceId` output), tables `FunctionAppLogs` and `AppServiceConsoleLogs`.
+- **Logs:** Log Analytics workspace (`logAnalyticsWorkspaceId` output), tables `FunctionAppLogs` (DP), `AppServiceConsoleLogs` and `AppServiceHTTPLogs` (mapping).
 - **Scaling:** `functionPlanSku` (EP1–EP3), `functionMaxInstances`, `mappingPlanSku` in the answers file or stack config.
 
 ## 9. Teardown

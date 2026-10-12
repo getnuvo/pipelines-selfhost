@@ -20,7 +20,9 @@ export const workspace = () => LocalWorkspace.create({ workDir: WORK_DIR });
 export const backend = async () => {
   try {
     return await (await workspace()).whoAmI();
-  } catch {
+  } catch (err) {
+    // Only a missing login gets the login hint; other failures are shown as they are.
+    if (!/log ?in|PULUMI_ACCESS_TOKEN/i.test((err as Error).message)) throw err;
     throw new WizardError(
       'Pulumi is not logged in. Run `pulumi login` (or `pulumi login --local` to keep state on this machine) and start again.',
     );

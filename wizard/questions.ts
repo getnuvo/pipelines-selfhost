@@ -299,6 +299,10 @@ export const QUESTIONS: Question[] = [
     kind: 'text',
     message: 'SSH public key for the jump VM',
     when: (a) => a.hubMode === 'test',
+    validate: () => (value) =>
+      value.endsWith('.pub')
+        ? undefined
+        : 'Pick the public key (.pub), never the private key.',
     discover: async () => {
       const keys = sshPublicKeys();
       const own = `${DEFAULT_SSH_KEY}.pub`;

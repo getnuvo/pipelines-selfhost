@@ -54,10 +54,17 @@ export const run = () => {
   const location = config.get('location') || 'germanywestcentral';
   const name = (suffix: string) => `${prefix}-${environment}-${suffix}`;
 
+  // Same rule as the wizard: dashes only between letters/digits (Key Vault rejects "--"), and
+  // no other characters, so two settings cannot collapse into the same storage account name.
+  for (const [key, value] of Object.entries({ prefix, environment })) {
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value)) {
+      throw new Error(
+        `${key} "${value}": use lowercase letters and digits, starting with a letter, single dashes in between.`,
+      );
+    }
+  }
   // Azure appends an 8 character suffix; storage accounts and vaults allow 24 characters.
-  const storageAccountName = `${prefix}${environment}sa`
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+  const storageAccountName = `${prefix}${environment}sa`.replace(/-/g, '');
   const keyVaultName = name('kv');
   if (storageAccountName.length > 16 || keyVaultName.length > 16) {
     throw new Error(
@@ -236,6 +243,12 @@ export const run = () => {
     resourceGroupName,
     location,
   });
+  // Marks the DP Function App's Private Endpoint: the only one the App Gateway needs (plus Blob
+  // with the /blob proxy), so it cannot reach mapping, Key Vault or the other Storage endpoints.
+  const dpAsg = new network.ApplicationSecurityGroup(name('dp-asg'), {
+    resourceGroupName,
+    location,
+  });
   const peNsg = new network.NetworkSecurityGroup(name('pe-nsg'), {
     resourceGroupName,
     location,
@@ -259,7 +272,10 @@ export const run = () => {
         protocol: 'Tcp',
         sourceAddressPrefix: appGatewaySubnetCidr,
         sourcePortRange: '*',
-        destinationAddressPrefix: '*',
+        destinationApplicationSecurityGroups: [
+          { id: dpAsg.id },
+          ...(blobPublicBaseUrl ? [{ id: blobAsg.id }] : []),
+        ],
         destinationPortRange: '443',
       },
       // Browsers using direct Blob SAS URLs (no blobPublicBaseUrl proxy)
@@ -672,7 +688,13 @@ export const run = () => {
     { alwaysOn: true },
   );
 
-  const functionPe = privateEndpoint('func', functionApp.id, 'sites', 'sites');
+  const functionPe = privateEndpoint(
+    'func',
+    functionApp.id,
+    'sites',
+    'sites',
+    dpAsg,
+  );
   const mappingPe = privateEndpoint('mapping', mappingApp.id, 'sites', 'sites');
 
   const functionPrincipal = principalOf(functionApp.identity, 'Function App');

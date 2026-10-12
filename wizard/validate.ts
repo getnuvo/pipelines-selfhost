@@ -150,7 +150,7 @@ export const resourceId =
   (providerType: string, nameSuffix?: string): Validator =>
   (value) => {
     const pattern = new RegExp(
-      `^/subscriptions/[0-9a-f-]{36}/resourceGroups/[^/]+/providers/${providerType.replace('.', '\\.')}/([^/]+)$`,
+      `^/subscriptions/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/resourceGroups/[^/]+/providers/${providerType.replace('.', '\\.')}/([^/]+)$`,
       'i',
     );
     const match = pattern.exec(value);

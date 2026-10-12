@@ -43,6 +43,11 @@ export const checkLicense = async (
       : 'The license was accepted but no registry key came back. Contact Ingestro support.';
   }
   const detail = await response.text().catch(() => '');
+  const status = `HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`;
+  if (response.status === 429)
+    return `Ingestro is rate limiting license checks (${status}). Try again in a minute.`;
+  if (response.status >= 500)
+    return `The license service failed (${status}). Try again later; if it persists, contact Ingestro support.`;
 
-  return `The license key was rejected for this environment (HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}).`;
+  return `The license key was rejected for this environment (${status}).`;
 };

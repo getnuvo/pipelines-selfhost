@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { LocalWorkspace, type OutputMap } from '@pulumi/pulumi/automation';
 import { WORK_DIR } from './pulumi';
-import { dim, info, WizardError } from './ui';
+import { dim, info, warn, WizardError } from './ui';
 
 const run = promisify(execFile);
 
@@ -85,13 +85,25 @@ export const loadSshPublicKey = async (file: string) => {
       DEFAULT_SSH_KEY,
     ]);
   }
+  let key: string;
   try {
-    return readFileSync(file, 'utf8').trim();
+    key = readFileSync(file, 'utf8').trim();
   } catch (err) {
     throw new WizardError(
       `Cannot read SSH public key ${file}: ${(err as Error).message}`,
     );
   }
+  // It goes into plain stack config and the VM: never let a private key through.
+  if (
+    !/^(?:ssh-[\w-]+|ecdsa-sha2-[\w-]+|sk-[\w@.-]+) [A-Za-z0-9+/]+=*(?: |$)/.test(
+      key,
+    )
+  )
+    throw new WizardError(
+      `${file} is not an OpenSSH public key (pick the .pub file of your key pair).`,
+    );
+
+  return key;
 };
 
 const write = (text: string) => process.stdout.write(text);
@@ -109,6 +121,25 @@ export const openTestHub = async (settings: {
     stackName: TEST_HUB.stack,
     workDir: TEST_HUB.dir,
   });
+  // One test hub per subscription, shared by every spoke: a deployed hub cannot move region
+  // (that would replace it), and a new SSH key replaces the jump VM.
+  const current = await stack.getAllConfig();
+  const deployed = Object.keys(await stack.outputs()).length > 0;
+  const was = (key: string) =>
+    Object.entries(current).find(([name]) => name.endsWith(`:${key}`))?.[1]
+      .value;
+  if (deployed && was('location') && was('location') !== settings.location)
+    throw new WizardError(
+      `The test hub is deployed in ${was('location')}. Use that location for this stack, or remove the hub first (./deploy.sh destroy on the stacks that use it).`,
+    );
+  if (
+    deployed &&
+    was('sshPublicKey') &&
+    was('sshPublicKey') !== settings.sshPublicKey
+  )
+    warn(
+      'The test hub has another SSH key: the next deploy replaces its jump VM (and the test MongoDB on it).',
+    );
   await stack.setAllConfig({
     // Same subscription as the spoke: its zone IDs point there.
     'azure-native:subscriptionId': { value: settings.subscriptionId },
@@ -120,7 +151,8 @@ export const openTestHub = async (settings: {
   // A stale spokeVnetId (spoke destroyed) would make the hub peer with a VNet that is gone.
   if (settings.spokeVnetId)
     await stack.setConfig('spokeVnetId', { value: settings.spokeVnetId });
-  else await stack.removeConfig('spokeVnetId').catch(() => undefined);
+  else if (was('spokeVnetId') !== undefined)
+    await stack.removeConfig('spokeVnetId');
 
   return stack;
 };

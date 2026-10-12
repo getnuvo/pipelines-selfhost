@@ -88,7 +88,10 @@ export const destroyDeployment = async (options: {
       : undefined;
   const hubResources = hubStack ? await resources(hubStack) : [];
   const atlas = configValue(config, 'ATLAS_PRIVATE_LINK_SERVICE_ID');
-  const outputs = await stack.outputs().catch(() => ({}) as OutputMap);
+  // A stack without resources has nothing to read; any other failure must stop the destroy
+  // rather than silently skip the Atlas cleanup.
+  const outputs: OutputMap =
+    spokeResources.length > 0 ? await stack.outputs() : {};
   const atlasEndpointId = (
     outputs['azureDocker']?.value as
       | { atlasPrivateEndpointId?: string }

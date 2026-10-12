@@ -93,12 +93,12 @@ This specification describes everything the Ingestro workload needs in an existi
 | Default outbound access             | Disabled                                              |
 | NSG                                 | Below                                                 |
 
-| Priority | Name                | Source                      | Destination              | Port    | Access |
-| -------- | ------------------- | --------------------------- | ------------------------ | ------- | ------ |
-| 100      | allow-spoke         | Spoke address space         | Any                      | Any     | Allow  |
-| 110      | allow-appgw-https   | App Gateway subnet          | Any                      | 443/TCP | Allow  |
-| 120+     | allow-blob-client-N | AVD subnets (option B only) | ASG of the Blob endpoint | 443/TCP | Allow  |
-| 4000     | deny-vnet-inbound   | `VirtualNetwork`            | Any                      | Any     | Deny   |
+| Priority | Name                | Source                      | Destination                                                                          | Port    | Access |
+| -------- | ------------------- | --------------------------- | ------------------------------------------------------------------------------------ | ------- | ------ |
+| 100      | allow-spoke         | Spoke address space         | Any                                                                                  | Any     | Allow  |
+| 110      | allow-appgw-https   | App Gateway subnet          | ASG of the DP Function App endpoint, plus the ASG of the Blob endpoint with option A | 443/TCP | Allow  |
+| 120+     | allow-blob-client-N | AVD subnets (option B only) | ASG of the Blob endpoint                                                             | 443/TCP | Allow  |
+| 4000     | deny-vnet-inbound   | `VirtualNetwork`            | Any                                                                                  | Any     | Deny   |
 
 **Spoke VNet DNS:** custom DNS server = the firewall private IP (DNS proxy), so the spoke resolves the hub's `privatelink.*` zones.
 
@@ -127,6 +127,8 @@ This specification describes everything the Ingestro workload needs in an existi
 
 - **A. Through the App Gateway (recommended):** a `/blob/*` path rule to the Blob Private Endpoint ([section 9](#9-application-gateway-and-waf)) and the DP setting `AZURE_BLOB_PUBLIC_BASE_URL=https://<app gateway host>/blob`. DP then rewrites SAS URLs to that origin; SAS signatures don't depend on the host.
 - **B. Directly:** AVD subnets reach the Blob Private Endpoint on 443. Put the Blob endpoint in an Application Security Group and allow the AVD subnets only to that ASG (NSG priority 120+ above).
+
+Either way, the DP Function App endpoint and the Blob endpoint each sit in their own Application Security Group, so the App Gateway reaches only them (not mapping, Key Vault or the other Storage endpoints).
 
 ## 6. Key Vault and secrets
 

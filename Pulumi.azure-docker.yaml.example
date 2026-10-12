@@ -56,8 +56,8 @@ config:
   # pipeline-self-host:blobClientCidrs:
   #   - 10.10.0.0/16
 
-  # MongoDB Atlas Private Link (Azure side); register the output endpoint in Atlas
-  pipeline-self-host:ATLAS_PRIVATE_LINK_SERVICE_ID: /subscriptions/<atlas-sub>/resourceGroups/<atlas-rg>/providers/Microsoft.Network/privateLinkServices/<pls>
+  # MongoDB Atlas Private Link (Azure side), Atlas only; register the output endpoint in Atlas
+  # pipeline-self-host:ATLAS_PRIVATE_LINK_SERVICE_ID: /subscriptions/<atlas-sub>/resourceGroups/<atlas-rg>/providers/Microsoft.Network/privateLinkServices/<pls>
   pipeline-self-host:DB_NAME: ingestro
   pipeline-self-host:LOG_DB_NAME: ingestro_logging
 

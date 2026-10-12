@@ -8,6 +8,23 @@
 # Checks the tools, installs the npm dependencies, then starts the wizard (wizard/index.ts).
 # Safe to re-run: nothing is reinstalled, and the wizard resumes from the stack config.
 set -euo pipefail
+# A relative --answers path is relative to where the command was run, not to the repo.
+args=()
+expect_answers=0
+for arg in "$@"; do
+  if [ "$expect_answers" = 1 ]; then
+    case "$arg" in /*) ;; *) arg="$PWD/$arg" ;; esac
+    expect_answers=0
+  else
+    case "$arg" in
+      --answers) expect_answers=1 ;;
+      --answers=/*) ;;
+      --answers=*) arg="--answers=$PWD/${arg#--answers=}" ;;
+    esac
+  fi
+  args+=("$arg")
+done
+set -- ${args[@]+"${args[@]}"}
 # Run from the repo, also when started through a symlink (e.g. one on the PATH).
 script="$0"
 while [ -L "$script" ]; do

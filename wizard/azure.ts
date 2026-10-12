@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { WizardError } from './ui';
+import { warn, WizardError } from './ui';
 
 const run = promisify(execFile);
 
@@ -98,13 +98,22 @@ export interface Region {
   geography?: string;
 }
 
+/** Keeps what the readable subscriptions return, and says which ones could not be read. */
 const perSubscription = async <T>(
   subscriptionIds: string[],
   list: (subscriptionId: string) => Promise<T[]>,
 ) =>
   (
     await Promise.all(
-      subscriptionIds.map((id) => list(id).catch(() => [] as T[])),
+      subscriptionIds.map((id) =>
+        list(id).catch((err: Error) => {
+          warn(
+            `Could not search subscription ${id}: ${err.message.split('\n').pop()}`,
+          );
+
+          return [] as T[];
+        }),
+      ),
     )
   ).flat();
 

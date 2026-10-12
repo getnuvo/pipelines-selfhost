@@ -593,7 +593,12 @@ const main = async () => {
   if (!hasChanges(summary) && !hubChanges) {
     ok('Already up to date.');
     // Still show the summary below (tunnel, hand-over), or resume the Atlas second round.
-    out = unwrap(await stack.outputs())['azureDocker'] as SpokeOutputs;
+    const deployed = unwrap(await stack.outputs())['azureDocker'];
+    if (!deployed)
+      throw new WizardError(
+        `Stack ${stackName} has no deployment outputs (an earlier deploy did not finish). Run \`pulumi up -s ${stackName}\` once, then ./deploy.sh again.`,
+      );
+    out = deployed as SpokeOutputs;
   } else {
     if (batch && !args.yes)
       throw new WizardError(
