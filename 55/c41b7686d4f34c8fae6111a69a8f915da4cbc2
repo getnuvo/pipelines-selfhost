@@ -1,0 +1,29 @@
+Pulumi.azure-docker.yaml.example
+  s_9eeee817b02b24::t_be214c5f128804 28
+wizard/questions.ts
+  s_9eeee817b02b24::t_be214c5f128804 191-192,427-428
+docs/azure-docker/guide.md
+  s_9eeee817b02b24::t_be214c5f128804 46,71,134
+docs/azure-docker/terraform-handoff.md
+  s_9eeee817b02b24::t_be214c5f128804 165,168-170
+deploy.answers.example.yaml
+  s_9eeee817b02b24::t_be214c5f128804 24
+wizard/questions.test.ts
+  s_9eeee817b02b24::t_81e0f4fd438d03 162-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "55c41b7686d4f34c8fae6111a69a8f915da4cbc2",
+  "prompts": {},
+  "sessions": {
+    "s_9eeee817b02b24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0183b915-c01d-4d6a-ac2e-1862b1a3798e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}
