@@ -20,3 +20,5 @@ perl -pi -e "s/^(\s*pipeline-self-host:version: )'[0-9][^']*'/\${1}'${version}'/
 perl -pi -e "s/^version: '[0-9][^']*'/version: '${version}'/" deploy.answers.example.yaml
 perl -pi -e "s/(\\\`<version>\\\` \(e\.g\. \\\`)[0-9]+\.[0-9]+\.[0-9]+/\${1}${version}/" \
   docs/azure-docker/terraform-handoff.md
+perl -pi -e "s/(release images \(e\.g\. \\\`)[0-9]+\.[0-9]+\.[0-9]+/\${1}${version}/" \
+  docs/azure-docker/guide.md
