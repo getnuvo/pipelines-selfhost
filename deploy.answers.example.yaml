@@ -14,7 +14,7 @@ environment: dev # part of resource names; prefix + environment must stay short
 location: germanywestcentral
 
 # Release
-version: '1.0.0' # ingestro/pipelines:<version>
+version: '1.6.0' # ingestro/pipelines:<version>
 mappingVersion: '<mapping-tag>' # pin a concrete tag
 
 # License (checked against Ingestro before anything is deployed)

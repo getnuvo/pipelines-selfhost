@@ -1,0 +1,57 @@
+name: Pipelines release version
+
+# Opens a pull request that sets the new release version in the example configs and guides.
+# nuvo-serverless sends `pipelines-release` after it publishes a release image
+# (ingestro/pipelines:<version>); it can also be run by hand.
+on:
+  repository_dispatch:
+    types: [pipelines-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version of ingestro/pipelines, e.g. 1.6.0
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.event.client_payload.version || inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+
+      # Validates the version and edits the files.
+      - name: Set the version
+        run: scripts/set-pipelines-version.sh "$VERSION"
+
+      # Table widths in the Markdown docs change with the version length.
+      - name: Format
+        run: npx --yes prettier@3.6.2 --write docs/azure-docker/terraform-handoff.md
+
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "The docs already use $VERSION."
+            exit 0
+          fi
+          branch="chore/pipelines-$VERSION"
+          title="chore: update the pipelines release version to $VERSION"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git commit -am "$title"
+          git push --force origin "$branch"
+          if gh pr view "$branch" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            echo "Pull request for $branch is already open; updated it."
+            exit 0
+          fi
+          gh pr create --base develop --head "$branch" --title "$title" --body \
+            "Release \`ingestro/pipelines:$VERSION\` was published. This sets it as the example version in the configs and guides (\`scripts/set-pipelines-version.sh\`)."

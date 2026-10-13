@@ -247,10 +247,10 @@ One workspace per environment (PerGB2018, e.g. 30 days retention) receiving the 
 
 ## 8. Container images
 
-| Image                | Tag                          | Notes                                                                   |
-| -------------------- | ---------------------------- | ----------------------------------------------------------------------- |
-| `ingestro/pipelines` | `<version>` (e.g. `0.147.0`) | Azure Functions host build of DP; Ingestro provides the tag per release |
-| `ingestro/mapping`   | `<version>`                  | Pin a concrete tag, never `latest` (rollback)                           |
+| Image                | Tag                        | Notes                                                                   |
+| -------------------- | -------------------------- | ----------------------------------------------------------------------- |
+| `ingestro/pipelines` | `<version>` (e.g. `1.6.0`) | Azure Functions host build of DP; Ingestro provides the tag per release |
+| `ingestro/mapping`   | `<version>`                | Pin a concrete tag, never `latest` (rollback)                           |
 
 The DP and mapping images verify the license against Ingestro's API: release images with your **live** key in Prod and your **dev** key in Dev.
 
