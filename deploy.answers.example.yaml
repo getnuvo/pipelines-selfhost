@@ -21,7 +21,7 @@ mappingVersion: '<mapping-tag>' # pin a concrete tag
 licenseKey: env:INGESTRO_LICENSE_KEY
 
 # App Service plans: not asked, the defaults below are used (the subscription needs App Service quota for them)
-# functionPlanSku: EP1 # EP1 | EP2 | EP3
+# functionPlanSku: EP2 # EP1 | EP2 | EP3
 # functionMaxInstances: 2
 # mappingPlanSku: P1v3
 

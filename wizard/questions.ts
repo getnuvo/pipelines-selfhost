@@ -188,7 +188,8 @@ export const QUESTIONS: Question[] = [
     kind: 'select',
     message: 'Function App plan (Elastic Premium)',
     choices: ['EP1', 'EP2', 'EP3'].map((sku) => ({ value: sku, name: sku })),
-    default: () => 'EP1',
+    // EP1 ran out of memory on a 7 MB / 121k-row file; EP2 peaked at 41%.
+    default: () => 'EP2',
   },
   {
     key: 'functionMaxInstances',
@@ -423,14 +424,14 @@ export const QUESTIONS: Question[] = [
         name: 'Directly to the Blob Private Endpoint from browser subnets',
       },
     ],
-    default: () => 'proxy',
+    // Asked with the test hub too: its optional App Gateway (test/azure-docker-hub) serves /blob.
+    default: (a) => (a.hubMode === 'test' ? 'direct' : 'proxy'),
     fromConfig: (read) =>
       read('blobPublicBaseUrl')
         ? 'proxy'
         : read('blobClientCidrs')
           ? 'direct'
           : undefined,
-    testHub: () => 'direct',
   },
   {
     key: 'blobPublicBaseUrl',

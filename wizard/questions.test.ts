@@ -159,6 +159,13 @@ describe('mapping AI provider', () => {
 describe('test hub', () => {
   const context = { subscriptionId: SUB };
 
+  it('still asks how browsers reach Blob, defaulting to direct', () => {
+    const blobAccess = question('blobAccess');
+    assert.equal(blobAccess.testHub, undefined);
+    assert.equal(blobAccess.default!({ hubMode: 'test' }), 'direct');
+    assert.equal(blobAccess.default!({ hubMode: 'existing' }), 'proxy');
+  });
+
   it('takes the hub-side values from the test hub', () => {
     assert.equal(question('firewallPrivateIp').testHub!(context), '10.29.0.4');
     assert.equal(

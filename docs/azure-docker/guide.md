@@ -43,7 +43,7 @@ One stack per environment (e.g. `acme-dev`, `acme-prod`):
 
 | Resource                | Notes                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Function App            | Plan EP1, min 1 / max `functionMaxInstances` instances (the wizard sets 2; without it the default is 3), public access disabled |
+| Function App            | Plan EP2, min 1 / max `functionMaxInstances` instances (the wizard sets 2; without it the default is 3), public access disabled |
 | Mapping Web App         | Plan P1v3, public access disabled                                                                                               |
 | App settings            | Secrets are Key Vault references to the exact secret version, resolved with each app's system-assigned identity                 |
 | HyperFormula share      | Azure Files share mounted at `/mnt/hyperformula-column` on the Function App (shared by all instances)                           |
@@ -68,7 +68,7 @@ App Service quota is per SKU and region, and new or sponsored subscriptions ofte
 
 | Quota      | Minimum                                    |
 | ---------- | ------------------------------------------ |
-| `EP1 VMs`  | `functionMaxInstances` (2 with the wizard) |
+| `EP2 VMs`  | `functionMaxInstances` (2 with the wizard) |
 | `P1v3 VMs` | 1                                          |
 
 Without it, the deployment fails on the App Service plans with `Operation cannot be completed without additional quota`. The wizard registers the resource providers it needs (after asking).
@@ -131,7 +131,7 @@ The first run checks the tools and installs the npm dependencies, then the wizar
 | Mapping module (AI) | Azure OpenAI or AWS Bedrock, then its settings.                                                                                                                                                                                        |
 | Database            | MongoDB Atlas, the test MongoDB, or a connection string.                                                                                                                                                                               |
 
-The spoke layout (`10.20.0.0/16`, app subnet `.1.0/24`, endpoint subnet `.2.0/24`) and the App Service plans (EP1, max 2 instances; P1v3) are not asked; set them in the [answers file](#10-batch-mode) to change them.
+The spoke layout (`10.20.0.0/16`, app subnet `.1.0/24`, endpoint subnet `.2.0/24`) and the App Service plans (EP2, max 2 instances; P1v3) are not asked; set them in the [answers file](#10-batch-mode) to change them.
 
 Then a **review** of every value (secrets shown as `set`), the **preview** (what will be created), and a confirmation before anything is deployed. At the end the wizard prints the next steps for your hub.
 

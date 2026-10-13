@@ -162,10 +162,12 @@ Either way, the DP Function App endpoint and the Blob endpoint each sit in their
 
 | Plan    | Value                                                                                               |
 | ------- | --------------------------------------------------------------------------------------------------- |
-| DP      | Linux, Elastic Premium `EP1` (EP1–EP3), `maximum_elastic_worker_count` 2–3, always 1 ready instance |
+| DP      | Linux, Elastic Premium `EP2` (EP1–EP3), `maximum_elastic_worker_count` 2–3, always 1 ready instance |
 | Mapping | Linux, Premium v3 `P1v3`                                                                            |
 
-Check **App Service quota** in the region first (Quotas → App Service: `EP1 VMs` ≥ max instances, `P1v3 VMs` ≥ 1); new subscriptions often start at 0.
+Check **App Service quota** in the region first (Quotas → App Service: `EP2 VMs` ≥ max instances, `P1v3 VMs` ≥ 1); new subscriptions often start at 0.
+
+**Sizing:** each instance runs a whole pipeline execution in memory. On 2026-10-13 a 7.1 MB `.xlsx` (121,409 rows, 1.8 million cells) ran out of memory on `EP1` (3.5 GB) and completed in 55 s on `EP2` (7 GB) with memory peaking at 41%. Use `EP2` as the baseline, and `EP3` (14 GB) if your files are several times larger.
 
 ### 7.2 DP Function App
 

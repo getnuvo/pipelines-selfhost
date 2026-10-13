@@ -25,7 +25,7 @@ config:
   # pipeline-self-host:BREVO_API_KEY                  # optional
 
   # App Service plans
-  pipeline-self-host:functionPlanSku: EP1
+  pipeline-self-host:functionPlanSku: EP2
   pipeline-self-host:functionMaxInstances: 3
   pipeline-self-host:mappingPlanSku: P1v3
 
