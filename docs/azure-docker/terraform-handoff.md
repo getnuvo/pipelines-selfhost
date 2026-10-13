@@ -257,8 +257,8 @@ The DP and mapping images verify the license against Ingestro's API: release ima
 1. **Import each release** (from your CI/CD pipeline or by hand), with the read-only registry key Ingestro provides for your license:
 
    ```bash
-   az acr import --name <acr> --source docker.io/ingestro/pipelines:<version> --image ingestro/pipelines:<version> --username getnuvo --password <registry key>
-   az acr import --name <acr> --source docker.io/ingestro/mapping:<version>   --image ingestro/mapping:<version>   --username getnuvo --password <registry key>
+   az acr import --name <acr> --source docker.io/ingestro/pipelines:<version> --image ingestro/pipelines:<version> --username ingestroselfhost --password <registry key>
+   az acr import --name <acr> --source docker.io/ingestro/mapping:<version>   --image ingestro/mapping:<version>   --username ingestroselfhost --password <registry key>
    ```
 
    `az acr import` runs through Azure Resource Manager, so it also works for a registry with public access disabled. The import needs outbound access from the machine or agent that runs it, not from the spokes.

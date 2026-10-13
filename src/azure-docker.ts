@@ -17,7 +17,7 @@ import * as storage from '@pulumi/azure-native/storage';
 import * as web from '@pulumi/azure-native/web';
 import * as random from '@pulumi/random';
 import { getConnectionString } from './helpers';
-import { fetchFunctionList } from './utils/ingestro';
+import { DOCKER_HUB_USERNAME, fetchFunctionList } from './utils/ingestro';
 
 const ROLE_KEY_VAULT_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
 const ROLE_ACR_PULL = '7f951dff-4bc7-4b4a-8ab8-1bf7a36cdeb6';
@@ -735,7 +735,7 @@ export const run = () => {
     ? { DOCKER_REGISTRY_SERVER_URL: `https://${acrLoginServer}` }
     : {
         DOCKER_REGISTRY_SERVER_URL: 'https://index.docker.io',
-        DOCKER_REGISTRY_SERVER_USERNAME: 'getnuvo',
+        DOCKER_REGISTRY_SERVER_USERNAME: DOCKER_HUB_USERNAME,
         DOCKER_REGISTRY_SERVER_PASSWORD: kvSecretRef('registry-password'),
       };
   const functionUrl = pulumi.interpolate`https://${functionApp.defaultHostName}`;

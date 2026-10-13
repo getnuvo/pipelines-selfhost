@@ -11,6 +11,9 @@ const selfHostDeploymentUrl =
   config.get('selfHostDeploymentUrl') ||
   'https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment';
 
+/** Read-only Docker Hub user that pairs with the per-organization `docker_key`. */
+export const DOCKER_HUB_USERNAME = 'ingestroselfhost';
+
 export const fetchFunctionList = async () => {
   const url = selfHostDeploymentUrl;
   const body = {
