@@ -50,8 +50,8 @@ Options:
                      (see deploy.answers.example.yaml). Secrets can be env:VAR_NAME.
   --stack <name>     Stack to use (otherwise asked, or stackName in the answers file)
   --preview-only     Write the config and run a preview, but deploy nothing
-  --yes              No confirmations (required to deploy in batch mode; destroy
-                     with --stack runs without prompts)
+  --yes              Skip the final "deploy now?" confirmation (required to deploy
+                     in batch mode; destroy with --stack runs without prompts)
   --keep-hub         destroy: keep the test hub
   -h, --help         Show this help
 
@@ -184,6 +184,8 @@ const configChanges = (
     secret = false,
   ) => {
     const current = pulumi.configValue(existing, key);
+    // Not set and not wanted (e.g. an inactive provider's secret): nothing to change.
+    if (current === undefined && value === undefined) return;
     const storedAsSecret = existing[key.split('.')[0]]?.secret ?? false;
     // Same value is a no-op, unless a secret is still stored in plain text.
     if (
@@ -482,6 +484,32 @@ const main = async () => {
     batch,
     keyFileAnswer: file['pulumiPassphraseFile'] as string | undefined,
   });
+  // A stack stays in its subscription unless the answers name another one: a changed
+  // `az account` must not move (redeploy) it silently.
+  const savedSubscription = pulumi.configValue(
+    existing,
+    'azure-native:subscriptionId',
+  ) as string | undefined;
+  if (
+    savedSubscription &&
+    savedSubscription !== subscription.id &&
+    !file['subscriptionId']
+  ) {
+    if (batch)
+      throw new WizardError(
+        `Stack ${stackName} is deployed to subscription ${savedSubscription}, but az is on ${subscription.id}. Run \`az account set --subscription ${savedSubscription}\`, or set subscriptionId in the answers file to move it.`,
+        2,
+      );
+    if (
+      !(await confirm({
+        message: `Stack ${stackName} is deployed to subscription ${savedSubscription}. Move it to ${subscription.name} (${subscription.id})?`,
+        default: false,
+      }))
+    )
+      throw new WizardError(
+        `Run \`az account set --subscription ${savedSubscription}\` and start again.`,
+      );
+  }
 
   const discovery = azure.discovery(
     (await azure.subscriptions(subscription.tenantId)).map((sub) => sub.id),

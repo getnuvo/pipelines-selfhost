@@ -66,10 +66,10 @@ Resource names start with `<prefix>-<environment>-` (e.g. `ingestro-dev-func…`
 
 App Service quota is per SKU and region, and new or sponsored subscriptions often start at **0**. In the Azure portal, **Quotas → App Service**, for the region you deploy to:
 
-| Quota      | Minimum                                    |
-| ---------- | ------------------------------------------ |
-| `EP2 VMs`  | `functionMaxInstances` (2 with the wizard) |
-| `P1v3 VMs` | 1                                          |
+| Quota                                          | Minimum                                    |
+| ---------------------------------------------- | ------------------------------------------ |
+| `<functionPlanSku> VMs` (`EP2 VMs` by default) | `functionMaxInstances` (2 with the wizard) |
+| `<mappingPlanSku> VMs` (`P1v3 VMs` by default) | 1                                          |
 
 Without it, the deployment fails on the App Service plans with `Operation cannot be completed without additional quota`. The wizard registers the resource providers it needs (after asking).
 

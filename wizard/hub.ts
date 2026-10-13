@@ -148,11 +148,39 @@ export const openTestHub = async (settings: {
     sshPublicKey: { value: settings.sshPublicKey },
     spokeAddressSpace: { value: settings.spokeAddressSpace },
   });
-  // A stale spokeVnetId (spoke destroyed) would make the hub peer with a VNet that is gone.
+  const peered = was('spokeVnetId') as string | undefined;
   if (settings.spokeVnetId)
     await stack.setConfig('spokeVnetId', { value: settings.spokeVnetId });
-  else if (was('spokeVnetId') !== undefined)
+  else if (peered) {
+    // A new spoke while the hub still peers another stack's VNet: re-peering would cut that
+    // spoke off. Only a stale entry (its spoke destroyed) may be dropped.
+    const stillThere = await run('az', [
+      'resource',
+      'show',
+      '--ids',
+      peered,
+      '--query',
+      'id',
+      '-o',
+      'tsv',
+    ]).then(
+      () => true,
+      (err: { stderr?: string }) => {
+        if (
+          /ResourceNotFound|ResourceGroupNotFound|could not be found|was not found/i.test(
+            err.stderr ?? '',
+          )
+        )
+          return false;
+        throw err;
+      },
+    );
+    if (stillThere)
+      throw new WizardError(
+        `The test hub is peered with another stack's spoke (${peered}). One spoke per test hub: remove that stack first (./deploy.sh destroy).`,
+      );
     await stack.removeConfig('spokeVnetId');
+  }
 
   return stack;
 };

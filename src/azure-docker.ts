@@ -382,13 +382,15 @@ export const run = () => {
     accountName: storageAccount.name,
   });
 
-  const storageAccountKey = storage.listStorageAccountKeysOutput({
-    resourceGroupName,
-    accountName: storageAccount.name,
-  }).keys[0].value;
-  const storageConnectionString = getConnectionString(
-    resourceGroupName,
-    storageAccount.name,
+  // Secret outputs, so the key is encrypted in the Pulumi state wherever it is used.
+  const storageAccountKey = pulumi.secret(
+    storage.listStorageAccountKeysOutput({
+      resourceGroupName,
+      accountName: storageAccount.name,
+    }).keys[0].value,
+  );
+  const storageConnectionString = pulumi.secret(
+    getConnectionString(resourceGroupName, storageAccount.name),
   );
 
   const storagePes = ['blob', 'file', 'queue', 'table'].map((service) =>
