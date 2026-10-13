@@ -10,7 +10,7 @@ import * as operationalinsights from '@pulumi/azure-native/operationalinsights';
 import * as cosmosdb from '@pulumi/azure-native/cosmosdb';
 import * as random from '@pulumi/random';
 import { getConnectionString, signedBlobReadUrl } from './helpers';
-import { fetchFunctionList } from './utils/ingestro';
+import { DOCKER_HUB_USERNAME, fetchFunctionList } from './utils/ingestro';
 import { serializationConfigValue } from './utils/string';
 
 let app: web.WebApp;
@@ -325,7 +325,7 @@ export const run = () => {
     { name: 'DOCKER_REGISTRY_SERVER_URL', value: mappingDockerServer },
     {
       name: 'DOCKER_REGISTRY_SERVER_USERNAME',
-      value: 'getnuvo',
+      value: DOCKER_HUB_USERNAME,
     },
     {
       name: 'DOCKER_REGISTRY_SERVER_PASSWORD',

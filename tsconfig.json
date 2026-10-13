@@ -15,5 +15,5 @@
     "forceConsistentCasingInFileNames": true,
     "strictNullChecks": true
   },
-  "include": ["index.ts", "src/**/*.ts", "functions/**/*.ts"]
+  "include": ["index.ts", "src/**/*.ts", "functions/**/*.ts", "wizard/**/*.ts"]
 }

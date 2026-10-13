@@ -1,0 +1,7 @@
+name: ingestro-test-hub
+description: Test-only hub (NVA egress, jump VM + Mongo, Private DNS zones, peering) for provider azure-docker
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+main: index.ts

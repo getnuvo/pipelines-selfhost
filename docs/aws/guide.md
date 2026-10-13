@@ -177,7 +177,7 @@ config:
 
   # Mapping Module Settings
   pipeline-self-host:dockerImageName: 'ingestro/mapping:latest'
-  pipeline-self-host:dockerHubUsername: 'getnuvo'
+  pipeline-self-host:dockerHubUsername: 'ingestroselfhost'
   pipeline-self-host:ec2InstanceType: 't3.large'
   pipeline-self-host:rootVolumeSize: 30
 
