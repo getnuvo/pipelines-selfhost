@@ -20,7 +20,7 @@ import { getConnectionString } from './helpers';
 import { DOCKER_HUB_USERNAME, fetchFunctionList } from './utils/ingestro';
 
 const ROLE_KEY_VAULT_SECRETS_USER = '4633458b-17de-408a-b874-0445c86b69e6';
-const ROLE_ACR_PULL = '7f951dff-4bc7-4b4a-8ab8-1bf7a36cdeb6';
+const ROLE_ACR_PULL = '7f951dda-4ed3-4680-a7ca-43fe172d538d';
 const HEALTH_PROBE_PATH = '/dp/api/v1/management/health';
 const HYPERFORMULA_MOUNT_PATH = '/mnt/hyperformula-column';
 // Ingestro dashboards that use this backend. Blob CORS has no subdomain wildcards, so they are listed.
@@ -619,7 +619,7 @@ export const run = () => {
   });
 
   // Elastic Premium only: VNet integration, Private Endpoints and maximumElasticWorkerCount.
-  const functionPlanSku = config.get('functionPlanSku') || 'EP1';
+  const functionPlanSku = config.get('functionPlanSku') || 'EP2';
   if (!/^EP[1-3]$/.test(functionPlanSku)) {
     throw new Error(
       `functionPlanSku must be EP1, EP2 or EP3 (Elastic Premium), got ${functionPlanSku}.`,

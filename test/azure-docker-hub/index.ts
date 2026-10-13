@@ -231,6 +231,8 @@ packages: [docker.io, jq]
 runcmd:
   - systemctl enable --now docker
   - docker run -d --name mongo --restart unless-stopped -p 27017:27017 -v mongo-data:/data/db mongo:7
+  # Browsers on the SOCKS tunnel resolve here: the optional App Gateway's test host name.
+  - echo '${APP_GATEWAY_PRIVATE_IP} ingestro-waf.test' >> /etc/hosts
 `,
   false,
 );
