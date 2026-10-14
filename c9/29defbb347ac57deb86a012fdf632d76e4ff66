@@ -1,0 +1,28 @@
+wizard/index.ts
+  s_9eeee817b02b24::t_be60147c4d05b7 53-54,187-188,487-512
+src/azure-docker.ts
+  s_9eeee817b02b24::t_be60147c4d05b7 385-393
+docs/azure-docker/guide.md
+  s_9eeee817b02b24::t_516ec2119f0075 69-72
+wizard/hub.ts
+  s_9eeee817b02b24::t_be60147c4d05b7 151,154-168,174-181,183
+  s_9eeee817b02b24::t_516ec2119f0075 169-173
+docs/azure-docker/terraform-handoff.md
+  s_9eeee817b02b24::t_7a108e65b49d04 168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "c929defbb347ac57deb86a012fdf632d76e4ff66",
+  "prompts": {},
+  "sessions": {
+    "s_9eeee817b02b24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0183b915-c01d-4d6a-ac2e-1862b1a3798e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}

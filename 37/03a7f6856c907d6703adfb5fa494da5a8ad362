@@ -1,0 +1,31 @@
+.github/workflows/pipelines-release.yml
+  s_9eeee817b02b24::t_b3634b76918843 1-5,9-21,27-54,61-71
+Pulumi.azure-docker.yaml.example
+  s_9eeee817b02b24::t_373ac1a935f5be 13
+deploy.answers.example.yaml
+  s_9eeee817b02b24::t_9e529e34d0a246 17
+docs/aws/guide.md
+  s_9eeee817b02b24::t_90ab0f788aea73 152
+docs/azure-docker/terraform-handoff.md
+  s_9eeee817b02b24::t_b22a41426b62b5 250-253
+docs/azure/guide.md
+  s_9eeee817b02b24::t_8e124977148c9c 141
+scripts/set-pipelines-version.sh
+  s_9eeee817b02b24::t_2d27e86e9bc132 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "3703a7f6856c907d6703adfb5fa494da5a8ad362",
+  "prompts": {},
+  "sessions": {
+    "s_9eeee817b02b24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0183b915-c01d-4d6a-ac2e-1862b1a3798e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}
