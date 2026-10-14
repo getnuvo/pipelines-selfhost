@@ -138,7 +138,7 @@ Open `Pulumi.<stack-name>.yaml` and update the following keys as needed.
 encryptionsalt: <keep as is>
 config:
   pipeline-self-host:provider: 'azure'
-  pipeline-self-host:version: '1.6.1' # Check release notes for available versions
+  pipeline-self-host:version: '1.6.2' # Check release notes for available versions
   pipeline-self-host:prefix: '<YOUR_ENVIRONMENT_TAG>' # Used for resource naming
 
   # Optional: Custom Domain (recommended for production)
