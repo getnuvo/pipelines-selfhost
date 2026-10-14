@@ -3,6 +3,9 @@ name: Pipelines release version
 # Opens a pull request that sets the new release version in the example configs and guides.
 # nuvo-serverless sends `pipelines-release` after it publishes a release image
 # (ingestro/pipelines:<version>); it can also be run by hand.
+#
+# GitHub runs repository_dispatch and workflow_dispatch workflows from the default branch only,
+# so this file must live on main; it checks out develop and runs the script from there.
 on:
   repository_dispatch:
     types: [pipelines-release]
@@ -15,6 +18,11 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+# One run per version at a time: a second run waits and then finds the branch.
+concurrency:
+  group: pipelines-release-${{ github.event.client_payload.version || inputs.version }}
+  cancel-in-progress: false
 
 jobs:
   bump:
@@ -44,14 +52,16 @@ jobs:
           fi
           branch="chore/pipelines-$VERSION"
           title="chore: update the pipelines release version to $VERSION"
+          # An earlier run (or a person) already started this version: leave that branch and
+          # its pull request alone rather than overwrite them.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch $branch already exists; nothing to do."
+            exit 0
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
           git switch -c "$branch"
           git commit -am "$title"
-          git push --force origin "$branch"
-          if gh pr view "$branch" --json state --jq .state 2>/dev/null | grep -q OPEN; then
-            echo "Pull request for $branch is already open; updated it."
-            exit 0
-          fi
+          git push origin "$branch"
           gh pr create --base develop --head "$branch" --title "$title" --body \
             "Release \`ingestro/pipelines:$VERSION\` was published. This sets it as the example version in the configs and guides (\`scripts/set-pipelines-version.sh\`)."
