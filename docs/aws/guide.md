@@ -149,7 +149,7 @@ config:
   aws:region: 'eu-central-1' # Must match your AWS profile region
   aws:profile: 'ingestro-pipelines' # Comment out if using the default AWS profile
   pipeline-self-host:provider: 'aws'
-  pipeline-self-host:version: '0.54.7' # Check release notes for available versions
+  pipeline-self-host:version: '1.6.2' # Check release notes for available versions
   pipeline-self-host:prefix: '<YOUR_ENVIRONMENT_TAG>' # Used for resource naming
 
   # Optional: Custom Domain (recommended for production)
@@ -177,7 +177,7 @@ config:
 
   # Mapping Module Settings
   pipeline-self-host:dockerImageName: 'ingestro/mapping:latest'
-  pipeline-self-host:dockerHubUsername: 'getnuvo'
+  pipeline-self-host:dockerHubUsername: 'ingestroselfhost'
   pipeline-self-host:ec2InstanceType: 't3.large'
   pipeline-self-host:rootVolumeSize: 30
 

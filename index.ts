@@ -7,12 +7,23 @@ const provider = config.require('provider');
 export let endpoint: pulumi.Output<string> | undefined;
 export let mappingModuleUrl: pulumi.Output<string> | undefined;
 export let configuredCustomDomain: pulumi.Output<string> | string | undefined;
+// provider: azure-docker — App Gateway backend, Private Endpoint IPs, etc.
+export let azureDocker:
+  | ReturnType<typeof import('./src/azure-docker').run>
+  | undefined;
 
 async function main() {
   if (provider === 'aws') {
     const awsMod = await import('./src/aws');
     const outputs = await awsMod.run();
     endpoint = outputs.endpoint;
+    return;
+  }
+  if (provider === 'azure-docker') {
+    const azureDockerMod = await import('./src/azure-docker');
+    const outputs = azureDockerMod.run();
+    endpoint = outputs.endpoint;
+    azureDocker = outputs;
     return;
   }
   if (provider === 'azure') {

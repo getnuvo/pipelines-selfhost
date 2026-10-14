@@ -3,12 +3,14 @@ import * as aws from '@pulumi/aws';
 import { Bucket } from '@pulumi/aws/s3';
 import { Output } from '@pulumi/pulumi';
 import { serializationConfigValue } from './string';
+import { DOCKER_HUB_USERNAME } from './ingestro';
 
 const config = new pulumi.Config();
 const functionPrefix = config.require('prefix');
 const dockerImageName =
   config.get('dockerImageName') || 'ingestro/mapping:latest'; // e.g. dockerhub repo/image:tag
-const dockerHubUsername = config.get('dockerHubUsername') || 'getnuvo';
+const dockerHubUsername =
+  config.get('dockerHubUsername') || DOCKER_HUB_USERNAME;
 const instanceType = config.get('ec2InstanceType') || 't3.xlarge';
 const rootVolumeSize = config.getNumber('rootVolumeSize') || 30; // GiB
 
