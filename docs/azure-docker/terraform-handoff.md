@@ -36,7 +36,7 @@ This specification describes everything the Ingestro workload needs in an existi
 
 ```
  AVD session hosts ─► Azure Firewall (hub) ─► App Gateway WAF v2 (hub, private frontend)
-                                                   │  /dp/* only
+                                                   │  /dp/* (and /blob/* with Blob option A)
  ┌──────────────── Ingestro spoke (Dev / Prod) ────▼──────────────────────────────────────┐
  │ endpoint subnet   PE: DP Function App ◄── App Gateway                                    │
  │                   PE: Mapping Web App ◄── DP (inside the spoke only)                      │
@@ -320,6 +320,7 @@ curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deploy
 
 - Embeddables `baseUrl` = the App Gateway host only, e.g. `https://ingestro-dev.company.local` (no `/dp`; the SDK appends `/dp/api/v1`).
 - Your backend requests user access tokens from `https://<app gateway host>/dp/api/v1/access/token` with the environment's license key.
+- Mint one token per user (`identifier`) and reuse it; tokens do not expire. Each user holds one valid token per license key: minting again revokes that user's previous token, including one held by another session or by the Ingestro dashboard.
 
 **WAF policies** (measured on 2026-10-09 against App Gateway WAF v2 with `Microsoft_DefaultRuleSet` 2.1: in Detection mode with the dashboard and embedded components, then in Prevention mode with the dashboard and by replaying requests for every API route that carries a body)
 
