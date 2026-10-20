@@ -46,35 +46,36 @@ This specification describes everything the Ingestro workload needs in an existi
  └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-| #   | From                         | To                                              | Port       | Notes                                                                |
-| --- | ---------------------------- | ----------------------------------------------- | ---------- | -------------------------------------------------------------------- |
-| 1   | AVD                          | App Gateway private frontend                    | 443        | Users and the embedded Ingestro UI                                   |
-| 2   | App Gateway                  | DP Function App Private Endpoint                | 443        | Only `/dp/*`                                                         |
-| 3   | DP Function App (app subnet) | DP Function App Private Endpoint                | 443        | DP calls its own internal functions                                  |
-| 4   | DP Function App (app subnet) | Mapping Web App Private Endpoint                | 443        | The mapping module is internal to the spoke                          |
-| 5   | Both apps (app subnet)       | Storage and Key Vault Private Endpoints         | 443 / 445  | Data, Functions runtime storage, Azure Files mount, secrets          |
-| 6   | DP Function App (app subnet) | MongoDB Atlas Private Endpoint                  | 1024–65535 | Atlas on Azure serves each node on its own port                      |
-| 7   | Both apps (app subnet)       | Your ACR Private Endpoint                       | 443        | Image pulls with managed identity ([section 8](#8-container-images)) |
-| 8   | Both apps (app subnet)       | Internet, through the firewall                  | 443        | License checks, AI provider ([section 10](#10-firewall-and-dns))     |
-| 9   | Browsers (AVD)               | Blob Private Endpoint, or App Gateway `/blob/*` | 443        | File uploads/downloads through short-lived SAS URLs                  |
+| #   | From                         | To                                              | Port                                     | Notes                                                                                        |
+| --- | ---------------------------- | ----------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1   | AVD                          | App Gateway private frontend                    | 443                                      | Users and the embedded Ingestro UI                                                           |
+| 2   | App Gateway                  | DP Function App Private Endpoint                | 443                                      | Only `/dp/*`                                                                                 |
+| 3   | DP Function App (app subnet) | DP Function App Private Endpoint                | 443                                      | DP calls its own internal functions                                                          |
+| 4   | DP Function App (app subnet) | Mapping Web App Private Endpoint                | 443                                      | The mapping module is internal to the spoke                                                  |
+| 5   | Both apps (app subnet)       | Storage and Key Vault Private Endpoints         | 443 / 445                                | Data, Functions runtime storage, Azure Files mount, secrets                                  |
+| 6   | DP Function App (app subnet) | MongoDB Atlas Private Endpoint                  | 1024–65535                               | Atlas on Azure serves each node on its own port                                              |
+| 7   | Both apps (app subnet)       | Your ACR Private Endpoint                       | 443                                      | Image pulls with managed identity ([section 8](#8-container-images))                         |
+| 8   | Both apps (app subnet)       | Internet, through the firewall                  | 443                                      | License checks; AI provider only if configured ([section 10](#10-firewall-and-dns))          |
+| 9   | Browsers (AVD)               | Blob Private Endpoint, or App Gateway `/blob/*` | 443                                      | File uploads/downloads through short-lived SAS URLs                                          |
+| 10  | DP Function App (app subnet) | Your SFTP / FTP servers, through the firewall   | 22 (SFTP); 21 + passive data ports (FTP) | Only if you use SFTP / FTP connectors; **network rule** ([section 10](#10-firewall-and-dns)) |
 
 ## 3. Parameters per environment
 
-| Parameter                    | Example (Dev)                          | Notes                                                                     |
-| ---------------------------- | -------------------------------------- | ------------------------------------------------------------------------- |
-| Region                       | `germanywestcentral`                   | Same region as the hub and the Atlas cluster                              |
-| App subnet                   | `/26` or larger                        | VNet integration of both apps                                             |
-| Endpoint subnet              | `/27` or larger                        | Private Endpoints (8–9 IPs)                                               |
-| Firewall private IP          | `10.0.0.4`                             | Next hop and DNS server                                                   |
-| App Gateway subnet           | `10.0.1.0/24`                          | Only source allowed to reach the DP endpoint on 443                       |
-| AVD subnets                  | `10.10.0.0/16`                         | Only for direct Blob access (option B in [section 5](#5-storage-account)) |
-| DP image                     | `ingestro/pipelines:<version>`         | From Ingestro per release ([section 8](#8-container-images))              |
-| Mapping image                | `ingestro/mapping:<version>`           | From Ingestro per release                                                 |
-| DP license key               | secret                                 | Dev key for Dev, live key for Prod                                        |
-| MongoDB connection string    | secret                                 | Atlas private endpoint SRV string                                         |
-| AI provider                  | Azure OpenAI endpoint, deployment, key | Or AWS Bedrock ([section 7.3](#73-mapping-web-app))                       |
-| App Gateway URL              | `https://ingestro-dev.company.local`   | The embeddables' `baseUrl` and the user platform's Pipelines base URL     |
-| Origins of your applications | `https://app.company.local`            | Blob CORS, besides the Ingestro dashboards                                |
+| Parameter                    | Example (Dev)                        | Notes                                                                                  |
+| ---------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------- |
+| Region                       | `germanywestcentral`                 | Same region as the hub and the Atlas cluster                                           |
+| App subnet                   | `/26` or larger                      | VNet integration of both apps                                                          |
+| Endpoint subnet              | `/27` or larger                      | Private Endpoints (8–9 IPs)                                                            |
+| Firewall private IP          | `10.0.0.4`                           | Next hop and DNS server                                                                |
+| App Gateway subnet           | `10.0.1.0/24`                        | Only source allowed to reach the DP endpoint on 443                                    |
+| AVD subnets                  | `10.10.0.0/16`                       | Only for direct Blob access (option B in [section 5](#5-storage-account))              |
+| DP image                     | `ingestro/pipelines:<version>`       | From Ingestro per release ([section 8](#8-container-images))                           |
+| Mapping image                | `ingestro/mapping:<version>`         | From Ingestro per release                                                              |
+| DP license key               | secret                               | Dev key for Dev, live key for Prod                                                     |
+| MongoDB connection string    | secret                               | Atlas private endpoint SRV string                                                      |
+| AI provider (optional)       | None                                 | Only if configured: Azure OpenAI or AWS Bedrock ([section 7.3](#optional-ai-provider)) |
+| App Gateway URL              | `https://ingestro-dev.company.local` | The embeddables' `baseUrl` and the user platform's Pipelines base URL                  |
+| Origins of your applications | `https://app.company.local`          | Blob CORS, besides the Ingestro dashboards                                             |
 
 ## 4. Spoke network
 
@@ -110,10 +111,13 @@ This specification describes everything the Ingestro workload needs in an existi
 | Kind / SKU               | StorageV2, Standard_LRS                                                               |
 | Minimum TLS              | 1.2                                                                                   |
 | Allow blob public access | false                                                                                 |
+| Shared key access        | **Enabled (required)**, see below                                                     |
 | Public network access    | Disabled; network rules default action Deny                                           |
 | Blob container           | one container for pipeline data (e.g. `data`)                                         |
 | File share               | `hyperformula` (mounted into the DP Function App, [section 7.2](#72-dp-function-app)) |
 | Private Endpoints        | `blob`, `file`, `queue`, `table`, each with a DNS zone group to its hub zone          |
+
+**Shared key access is required.** The workload authenticates to this storage account with its account key: the connection string in `AzureWebJobsStorage` and `AZURE_CONNECTION_STRING`, `AZURE_ACCOUNT_KEY`, the mapping module's `MAPPING_AZURE_BLOB_ACCOUNT_KEY`, the Azure Files mount, and the SAS URLs DP signs for browser uploads and downloads. Keep `shared_access_key_enabled = true`. If an Azure Policy denies shared key access (for example "Storage accounts should prevent shared key access"), the deployment or the apps fail; please check this early and plan an exemption for the Ingestro storage accounts.
 
 **With Terraform and public access disabled:** create the container and the file share with `azurerm_storage_container` / `azurerm_storage_share` using `storage_account_id` (not `storage_account_name`): with `storage_account_id` they go through Azure Resource Manager, so your agent does not need to reach the storage Private Endpoints. Set the CORS rules below in the account's `blob_properties`, and don't set `queue_properties` or `static_website` on the account, which use the data plane.
 
@@ -153,8 +157,8 @@ Either way, the DP Function App endpoint and the Blob endpoint each sit in their
 | `mapping-azure-blob-account-key`                                             | Storage account key                                                                                | Mapping `MAPPING_AZURE_BLOB_ACCOUNT_KEY`                                                                                                  |
 | `azure-private-token`                                                        | Random 32 characters                                                                               | DP `AZURE_PRIVATE_TOKEN` (`x-functions-key` for DP's calls to its own functions)                                                          |
 | `s3-connector-secret-key`                                                    | Random 32 bytes, hex                                                                               | DP `S3_CONNECTOR_SECRET_KEY` (encrypts stored connector credentials; **keep it stable**, changing it makes stored credentials unreadable) |
-| `mapping-azure-openai-api-key`                                               | Azure OpenAI key                                                                                   | Mapping (Azure OpenAI)                                                                                                                    |
-| `mapping-aws-bedrock-access-key-id`, `mapping-aws-bedrock-secret-access-key` | AWS keys                                                                                           | Mapping (AWS Bedrock only)                                                                                                                |
+| `mapping-azure-openai-api-key`                                               | Azure OpenAI key, only if configured                                                               | Mapping (Azure OpenAI)                                                                                                                    |
+| `mapping-aws-bedrock-access-key-id`, `mapping-aws-bedrock-secret-access-key` | AWS keys, only if configured                                                                       | Mapping (AWS Bedrock only)                                                                                                                |
 | `pusher-secret`, `brevo-api-key`, `sendgrid-receiver-secret-key`             | Optional                                                                                           | Realtime updates / email, only if used                                                                                                    |
 
 **Writing secrets with Terraform:** `azurerm_key_vault_secret` writes through the Key Vault data plane (`https://<vault>.vault.azure.net`). With public access disabled, that needs an agent inside your network that reaches the vault's Private Endpoint and holds **Key Vault Secrets Officer**. Without such an agent, create the secrets through Azure Resource Manager with `azapi_resource` type `Microsoft.KeyVault/vaults/secrets` (body `properties.value`), which is not subject to the vault's network rules and needs `Microsoft.KeyVault/vaults/secrets/write` (e.g. Key Vault Contributor on the vault). Its `properties.secretUriWithVersion` (via `response_export_values`) is the versioned URI for the app settings. Our reference implementation writes the secrets this way, with public access disabled.
@@ -230,23 +234,30 @@ Check **App Service quota** in the region first (Quotas → App Service: the VMs
 
 **App settings**
 
-| Name                                                                         | Value                                                                                        |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `WEBSITES_PORT`, `MAPPING_PORT`                                              | `8000`                                                                                       |
-| `WEBSITES_ENABLE_APP_SERVICE_STORAGE`                                        | `false`                                                                                      |
-| `MAPPING_LICENSE_KEY`                                                        | Key Vault reference `mapping-license-key`                                                    |
-| `MAPPING_STORAGE_PROVIDER`                                                   | `AZURE_BLOB`                                                                                 |
-| `MAPPING_AZURE_BLOB_ACCOUNT_NAME` / `MAPPING_AZURE_BLOB_CONTAINER_NAME`      | Storage account / container (same as DP)                                                     |
-| `MAPPING_AZURE_BLOB_ACCOUNT_KEY`                                             | Key Vault reference `mapping-azure-blob-account-key`                                         |
-| `MAPPING_LLM_PROVIDER`                                                       | `AZURE` (Azure OpenAI) or `BEDROCK` (AWS Bedrock)                                            |
-| `MAPPING_LLM_TEMPERATURE`                                                    | `0`                                                                                          |
-| `MAPPING_AZURE_OPENAI_ENDPOINT`                                              | `https://<resource>.openai.azure.com`                                                        |
-| `MAPPING_AZURE_OPENAI_API_VERSION`                                           | `2024-10-21`                                                                                 |
-| `MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME`                                       | e.g. `gpt-4o-mini`                                                                           |
-| `MAPPING_AZURE_OPENAI_API_KEY`                                               | Key Vault reference `mapping-azure-openai-api-key`                                           |
-| `MAPPING_AWS_BEDROCK_REGION`, `MAPPING_AWS_BEDROCK_MODEL_ID`                 | Bedrock only (e.g. `anthropic.claude-3-haiku-20240307-v1:0`)                                 |
-| `MAPPING_AWS_BEDROCK_ACCESS_KEY_ID`, `MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY` | Bedrock only, Key Vault references                                                           |
-| `DOCKER_REGISTRY_SERVER_URL`                                                 | `https://<acr>.azurecr.io` (AcrPull with managed identity, [section 8](#8-container-images)) |
+| Name                                                                    | Value                                                                                        |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `WEBSITES_PORT`, `MAPPING_PORT`                                         | `8000`                                                                                       |
+| `WEBSITES_ENABLE_APP_SERVICE_STORAGE`                                   | `false`                                                                                      |
+| `MAPPING_LICENSE_KEY`                                                   | Key Vault reference `mapping-license-key`                                                    |
+| `MAPPING_STORAGE_PROVIDER`                                              | `AZURE_BLOB`                                                                                 |
+| `MAPPING_AZURE_BLOB_ACCOUNT_NAME` / `MAPPING_AZURE_BLOB_CONTAINER_NAME` | Storage account / container (same as DP)                                                     |
+| `MAPPING_AZURE_BLOB_ACCOUNT_KEY`                                        | Key Vault reference `mapping-azure-blob-account-key`                                         |
+| `DOCKER_REGISTRY_SERVER_URL`                                            | `https://<acr>.azurecr.io` (AcrPull with managed identity, [section 8](#8-container-images)) |
+
+#### Optional: AI provider
+
+The Mapping module provides exact and fuzzy column matching without an AI provider, so none is required. Add the settings below, their secrets ([section 6](#6-key-vault-and-secrets)) and the egress entry ([section 10](#10-firewall-and-dns)) only if you configure one.
+
+| Name                                                                         | Value                                                                           |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `MAPPING_LLM_PROVIDER`                                                       | `AZURE` (Azure OpenAI) or `BEDROCK` (AWS Bedrock); unset without an AI provider |
+| `MAPPING_LLM_TEMPERATURE`                                                    | `0`                                                                             |
+| `MAPPING_AZURE_OPENAI_ENDPOINT`                                              | `https://<resource>.openai.azure.com`                                           |
+| `MAPPING_AZURE_OPENAI_API_VERSION`                                           | `2024-10-21`                                                                    |
+| `MAPPING_AZURE_OPENAI_DEPLOYMENT_NAME`                                       | e.g. `gpt-4o-mini`                                                              |
+| `MAPPING_AZURE_OPENAI_API_KEY`                                               | Key Vault reference `mapping-azure-openai-api-key`                              |
+| `MAPPING_AWS_BEDROCK_REGION`, `MAPPING_AWS_BEDROCK_MODEL_ID`                 | Bedrock only (e.g. `anthropic.claude-3-haiku-20240307-v1:0`)                    |
+| `MAPPING_AWS_BEDROCK_ACCESS_KEY_ID`, `MAPPING_AWS_BEDROCK_SECRET_ACCESS_KEY` | Bedrock only, Key Vault references                                              |
 
 ### 7.4 Log Analytics
 
@@ -321,7 +332,8 @@ The DP and mapping images verify the license against Ingestro's API: release ima
 
 - Embeddables `baseUrl` = the App Gateway host only, e.g. `https://ingestro-dev.company.local` (no `/dp`; the SDK appends `/dp/api/v1`).
 - Your backend requests user access tokens from `https://<app gateway host>/dp/api/v1/access/token` with the environment's license key.
-- Mint one token per user (`identifier`) and reuse it; tokens do not expire. Each user holds one valid token per license key: minting again revokes that user's previous token, including one held by another session or by the Ingestro dashboard.
+- Mint one token per user (`identifier`) and reuse it; tokens do not expire. Each identifier holds one valid token per license key: minting again revokes the previous token for that identifier, including one held by another session.
+- **If you use both the embeddables and the Ingestro user platform** ([section 12](#12-ingestro-user-platform-from-avd)): the user platform mints its token from the browser with the platform user's identifier, which is the user's email address unless an admin changed it. If your backend mints tokens with the same identifier and license key, the two paths revoke each other's token and users get intermittent 401 errors. Use identifiers in your backend that can never equal a platform identifier, for example with a prefix such as `app:<your user id>`.
 
 **WAF policies** (measured on 2026-10-09 against App Gateway WAF v2 with `Microsoft_DefaultRuleSet` 2.1: in Detection mode with the dashboard and embedded components, then in Prevention mode with the dashboard and by replaying requests for every API route that carries a body)
 
@@ -333,7 +345,7 @@ Three policies, one per path group, all with the managed rule set `Microsoft_Def
 | `ingestro-data` | The four data path rules  | **Off** (`request_body_check = false`, no body size enforcement) | The eight exclusions below           |
 | `ingestro-blob` | `/blob/*`                 | **Off** (`request_body_check = false`, no body size enforcement) | Rule **920420** disabled (see below) |
 
-**Why the data paths skip body inspection.** Their bodies are user content by design: spreadsheet rows from the uploaded files (keyed by the file's own column names, so no field-level exclusion can be written in advance), transformation JavaScript and spreadsheet formulas, and AI prompts. In our measurement those requests scored 33 to 78 and tripped rules in the RCE (932100, 932130, 932140), XSS (941320, 941330), SQLI (about 20 rules from 942100 to 942480), LFI (930110), RFI (931130), protocol attack (921130) and MS-ThreatIntel-SQLI (99031001 to 99031004) groups, under field names such as `function`, `prompt`, `cleanings.<row>.<column>` or the column names themselves. Rows larger than 2000 KB (the API accepts up to 6 MB) would also be rejected by the WAF body size limit. On these paths the WAF still inspects the URL, query string and headers, and every endpoint requires an Ingestro access token. Please have your security team review this trade-off.
+**Why the data paths skip body inspection.** Their bodies are user content by design: spreadsheet rows from the uploaded files (keyed by the file's own column names, so no field-level exclusion can be written in advance), transformation JavaScript and spreadsheet formulas. In our measurement those requests scored 33 to 78 and tripped rules in the RCE (932100, 932130, 932140), XSS (941320, 941330), SQLI (about 20 rules from 942100 to 942480), LFI (930110), RFI (931130), protocol attack (921130) and MS-ThreatIntel-SQLI (99031001 to 99031004) groups, under field names such as `function`, `cleanings.<row>.<column>` or the column names themselves. Rows larger than 2000 KB (the API accepts up to 6 MB) would also be rejected by the WAF body size limit. On these paths the WAF still inspects the URL, query string and headers, and every endpoint requires an Ingestro access token. Please have your security team review this trade-off.
 
 **Why `/blob/*` disables 920420 and body inspection.** It carries the uploaded file as-is (`.xlsx`, `.csv`, ...) in a raw `PUT` body. Rule 920420 only allows the JSON, XML and form content types and blocks every upload. The body is a file, not inspectable request data, and the 2000 KB body size limit applies to it (the file upload limit only covers multipart forms), so it would reject larger files. Write access needs the short-lived SAS token issued by the API.
 
@@ -466,16 +478,27 @@ Start in Detection mode if you prefer, check `AGWFirewallLogs` during your accep
 
 ## 10. Firewall and DNS
 
-**Egress allow-list from the Ingestro spokes** (application rules, HTTPS 443)
+**Egress allow-list from the Ingestro spokes: application rules** (HTTPS 443)
 
-| FQDN                                            | Why                                                         |
-| ----------------------------------------------- | ----------------------------------------------------------- |
-| `api-gateway.ingestro.com`                      | License verification on every execution, user access tokens |
-| Azure OpenAI endpoint (or its Private Endpoint) | Mapping module                                              |
-| `bedrock-runtime.<region>.amazonaws.com`        | Mapping module, only with AWS Bedrock                       |
-| `*.pusher.com`, `*.pusherapp.com`               | Only if Pusher is configured                                |
-| `api.brevo.com`                                 | Only if Brevo is configured                                 |
-| Your pipeline data sources and destinations     | Input and output connectors                                 |
+| FQDN                                            | Why                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| `api-gateway.ingestro.com`                      | License verification on every execution, user access tokens               |
+| Azure OpenAI endpoint (or its Private Endpoint) | Mapping module, only if Azure OpenAI is configured                        |
+| `bedrock-runtime.<region>.amazonaws.com`        | Mapping module, only if AWS Bedrock is configured                         |
+| `*.pusher.com`, `*.pusherapp.com`               | Only if Pusher is configured                                              |
+| `api.brevo.com`                                 | Only if Brevo is configured                                               |
+| Your HTTPS data sources and destinations        | Input and output connectors over HTTPS (HTTP, webhook and API connectors) |
+
+**Egress from the Ingestro spokes: network rules** (TCP, only if you use SFTP / FTP connectors)
+
+| Source     | Destination                     | Port                                          |
+| ---------- | ------------------------------- | --------------------------------------------- |
+| App subnet | Each SFTP server of a connector | The connector's port, normally 22             |
+| App subnet | Each FTP server of a connector  | 21, plus the server's passive data port range |
+
+SFTP and FTP are not HTTP(S), so they need **network rules** on the Azure Firewall, not application rules. With FQDN destinations in network rules, the firewall DNS proxy must resolve the SFTP / FTP host names.
+
+SFTP and FTP connectors run server-side in the DP Function App: browsers never connect to these servers, so this is independent of the Blob option ([section 5](#5-storage-account)). While a pipeline reads from a server, the data stays in your storage account: files are downloaded temporarily to the Azure Files share `hyperformula` (`/mnt/hyperformula-column`) and deleted after reading, and the parsed data is written to the Blob container under `connectors/<connector id>/`.
 
 Docker Hub is not on this list: the apps pull from your ACR ([section 8](#8-container-images)), and only the import pipeline reaches Docker Hub.
 
@@ -507,7 +530,7 @@ Recommended baseline:
 
 ## 12. Ingestro user platform from AVD
 
-Your users can work with Ingestro Pipelines in two ways, and both can be used side by side:
+Your users can work with Ingestro Pipelines in two ways, and both can be used side by side as long as your backend's token identifiers differ from the platform's ([section 9](#9-application-gateway-and-waf), Clients):
 
 - **Embeddables in your own applications:** the components run in your application and call the App Gateway host (`baseUrl`). Nothing beyond the sections above is needed.
 - **The Ingestro user platform** (`https://dashboard.ingestro.com`), opened in a browser on AVD. The platform itself (sign-in, organization settings) is served by Ingestro's cloud, while every Pipelines call (connectors, pipelines, executions, data) goes from the browser straight to your App Gateway host. Pipeline data does not pass through Ingestro's cloud.
@@ -542,7 +565,7 @@ The full list (sign-in providers, the platform's CDN and support widget) follows
 | 2   | Image source                                                                                            | Customer, with Ingestro | **Decided:** your ACR (import from Docker Hub with the registry key)                                            |
 | 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys        | Ingestro                | Per release                                                                                                     |
 | 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                                     | Customer                | To confirm                                                                                                      |
-| 5   | AI provider for the mapping module (Azure OpenAI recommended)                                           | Customer                | To confirm                                                                                                      |
+| 5   | AI provider: optional, not required for the start                                                       | Customer                | Not required                                                                                                    |
 | 6   | Full AVD egress list for the Ingestro user platform ([section 12](#12-ingestro-user-platform-from-avd)) | Ingestro                | To provide                                                                                                      |
 
 ## 14. Deployment order, permissions and verification
@@ -550,11 +573,11 @@ The full list (sign-in providers, the platform's CDN and support widget) follows
 **Order**
 
 1. Subnets, route table, NSG and ASG in the spoke; spoke DNS server = firewall IP.
-2. Storage account (container, file share, CORS), Key Vault and its secrets, Log Analytics; their Private Endpoints and DNS zone groups.
-3. Atlas endpoint service, the Atlas Private Endpoint, its registration in Atlas.
+2. Atlas endpoint service, the Atlas Private Endpoint, its registration in Atlas. This gives the private SRV connection string for the `data-pipeline-db-uri` secret.
+3. Storage account (container, file share, CORS), Key Vault and its secrets (including the Atlas connection string from step 2), Log Analytics; their Private Endpoints and DNS zone groups.
 4. A user-assigned identity per app and its role assignments (Key Vault Secrets User on the vault, AcrPull on the ACR).
 5. App Service plans; both apps with their identities, app settings (versioned Key Vault references), the Azure Files mount, VNet integration and their Private Endpoints.
-6. Firewall rules, App Gateway backend / probe / routing / WAF policy.
+6. Firewall rules (application rules, and network rules for SFTP / FTP if used), App Gateway backend / probe / routing / WAF policy.
 
 **Permissions for the deploying service principal** (least privilege): create resources in the Ingestro resource group; assign roles scoped to the Key Vault and the ACR for the apps' identities; join the spoke subnets; write records in the hub Private DNS zones (`Microsoft.Network/privateDnsZones/join/action`, e.g. Private DNS Zone Contributor on those zones); write Key Vault secrets through ARM (`Microsoft.KeyVault/vaults/secrets/write`).
 
