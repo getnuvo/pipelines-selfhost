@@ -163,7 +163,7 @@ Either way, the DP Function App endpoint and the Blob endpoint each sit in their
 
 ## 7. App Service plans and apps
 
-**Identities:** give each app its own **user-assigned managed identity** (`azurerm_user_assigned_identity`), and grant its roles (Key Vault Secrets User on the vault, AcrPull on your ACR) before the app is created. With a system-assigned identity the roles can only be granted after the app exists, so its first start has no image pull rights and the Key Vault references do not resolve until the roles are in place and the app restarts. Role assignments can take a few minutes to propagate; if an app starts before that, restart it once.
+**Identities:** give each app its own **user-assigned managed identity** (`azurerm_user_assigned_identity`), and grant its roles (Key Vault Secrets User on the vault, AcrPull on your ACR) before the app is created. With a system-assigned identity the roles can only be granted after the app exists, so its first start has no image pull rights and the Key Vault references do not resolve until the roles are in place and the app restarts. Role assignments can take a few minutes to propagate; if an app starts before that, restart it once. Our reference implementation still uses system-assigned identities with a restart after the role assignments; the user-assigned pattern above is not yet verified end to end there.
 
 ### 7.1 Plans
 
@@ -182,7 +182,7 @@ Check **App Service quota** in the region first (Quotas → App Service: the VMs
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Kind                           | `functionapp,linux,container` on the EP plan                                                                                                                             |
 | Container                      | `DOCKER\|<registry>/ingestro/pipelines:<version>`                                                                                                                        |
-| Identity                       | User-assigned (`identity { type = "UserAssigned" }`); `key_vault_reference_identity_id` = that identity                                                                  |
+| Identity                       | User-assigned (`identity { type = "UserAssigned", identity_ids = [<app identity id>] }`); `key_vault_reference_identity_id` = that identity                              |
 | HTTPS only / HTTP 2 / FTPS     | true / true / Disabled                                                                                                                                                   |
 | Public network access          | Disabled                                                                                                                                                                 |
 | VNet integration               | App subnet; **route all traffic** (`vnet_route_all_enabled`), **image pull over VNet** (`vnetImagePullEnabled`), **content share over VNet** (`vnetContentShareEnabled`) |
