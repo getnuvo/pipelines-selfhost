@@ -548,14 +548,23 @@ The browser then gets its Pipelines access token from `https://<app gateway host
 
 **Browser policy:** `dashboard.ingestro.com` is a public site that calls a private address (your App Gateway, and the Blob Private Endpoint with option B). Chrome and Edge restrict such requests (Local Network Access) and may block them or ask the user for permission. Allow `https://dashboard.ingestro.com` through your browsers' Local Network Access enterprise policy on the AVD session hosts.
 
-**AVD egress** (HTTPS 443), at least:
+**AVD egress** (HTTPS 443; taken from the production user platform on 2026-10-20):
 
-| FQDN                       | Why                                             |
-| -------------------------- | ----------------------------------------------- |
-| `dashboard.ingestro.com`   | The user platform                               |
-| `api-gateway.ingestro.com` | Sign-in, organization settings, user management |
+| FQDN                                                                                                        | Needed                       | Why                                                           |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------- |
+| `dashboard.ingestro.com`                                                                                    | Required                     | The user platform                                             |
+| `api-gateway.ingestro.com`                                                                                  | Required                     | Sign-in, organization settings, user management, license keys |
+| `identitytoolkit.googleapis.com`, `securetoken.googleapis.com`                                              | Required                     | Sign-in and session refresh (Firebase Authentication)         |
+| `fonts.ingestro.com`, `kit-pro.fontawesome.com`                                                             | Required                     | Fonts and icons                                               |
+| `nuvo-f0dde.firebaseapp.com`, `apis.google.com`, `accounts.google.com`                                      | Only for Google sign-in      | Sign in with Google                                           |
+| `github.com`                                                                                                | Only for GitHub sign-in      | Sign in with GitHub                                           |
+| `*.pusher.com`                                                                                              | Only if Pusher is configured | Realtime updates ([section 7.2](#72-dp-function-app))         |
+| `widget.usepylon.com`                                                                                       | Optional                     | Support chat                                                  |
+| `assets.cello.so`                                                                                           | Optional                     | Referral programme                                            |
+| `www.googletagmanager.com`, `cdn.matomo.cloud`, `getnuvo.matomo.cloud`, `dashboard-app.ben1100.workers.dev` | Optional                     | Product analytics                                             |
+| `docs.ingestro.com`                                                                                         | Optional                     | Documentation links                                           |
 
-The full list (sign-in providers, the platform's CDN and support widget) follows from Ingestro ([section 13](#13-open-items), item 6).
+The platform works without the optional hosts: blocking them only removes the support chat, the referral programme, analytics and the documentation links. The Pipelines calls themselves go to your App Gateway host, not to the internet.
 
 ## 13. Open items
 
@@ -566,7 +575,7 @@ The full list (sign-in providers, the platform's CDN and support widget) follows
 | 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys        | Ingestro                | Per release                                                                                                     |
 | 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                                     | Customer                | To confirm                                                                                                      |
 | 5   | AI provider: optional, not required for the start                                                       | Customer                | Not required                                                                                                    |
-| 6   | Full AVD egress list for the Ingestro user platform ([section 12](#12-ingestro-user-platform-from-avd)) | Ingestro                | To provide                                                                                                      |
+| 6   | Full AVD egress list for the Ingestro user platform ([section 12](#12-ingestro-user-platform-from-avd)) | Ingestro                | **Done:** see [section 12](#12-ingestro-user-platform-from-avd)                                                 |
 
 ## 14. Deployment order, permissions and verification
 
