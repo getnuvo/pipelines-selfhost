@@ -263,7 +263,7 @@ The DP and mapping images verify the license against Ingestro's API: release ima
 
 **Registry: your Azure Container Registry.** Ingestro publishes each release on Docker Hub; your pipeline imports it into your ACR, and the apps pull from there over the VNet with their managed identities. No egress to a public registry is needed at runtime.
 
-1. **Import each release** (from your CI/CD pipeline or by hand), with the read-only registry key Ingestro provides for your license:
+1. **Import each release** (from your CI/CD pipeline or by hand), with the read-only registry key from Ingestro (below):
 
    ```bash
    az acr import --name <acr> --source docker.io/ingestro/pipelines:<version> --image ingestro/pipelines:<version> --username ingestroselfhost --password <registry key>
@@ -276,13 +276,7 @@ The DP and mapping images verify the license against Ingestro's API: release ima
 3. **Network:** the ACR needs a Private Endpoint (`privatelink.azurecr.io`, resolvable from the spokes), since both apps pull images over the VNet (`vnetImagePullEnabled`).
 4. **Upgrade:** import the new tags, then change the image tags in your Terraform and apply. **Rollback:** apply the previous tags (keep them in the ACR).
 
-**Registry key:** returned by Ingestro's self-host deployment API for your license (or provided by Ingestro):
-
-```bash
-curl -s -X POST https://api-gateway.ingestro.com/dp/api/v1/auth/self-host-deployment \
-  -H 'content-type: application/json' \
-  -d '{"version":"<version>","provider":"AZURE","license_key":"<license key>"}' | jq -r .docker_key
-```
+**Registry key:** Ingestro hands it over to you directly through a secure channel. It is a read-only token for the `ingestroselfhost` user that can only pull `ingestro/pipelines` and `ingestro/mapping`. Store it as a secret in your CI/CD, and tell us if it needs to be rotated.
 
 ## 9. Application Gateway and WAF
 
