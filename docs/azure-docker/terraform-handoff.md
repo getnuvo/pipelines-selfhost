@@ -1,9 +1,9 @@
 # Ingestro Pipelines on Azure — Terraform handoff specification
 
 **For:** the customer's Infrastructure / DevOps team, to build the Ingestro workload in their Terraform modules.
-**Status:** draft for review. Open items are listed in [section 13](#13-open-items).
+**Status:** Version 1.0.0, 21.10.2026
 
-This specification describes everything the Ingestro workload needs in an existing hub-and-spoke network. It is derived from Ingestro's reference implementation (a Pulumi program), which we deploy and test end to end on Azure (Function App, Private Endpoints, MongoDB Atlas over Private Link, egress through a firewall). Resource names below are examples; use your own naming convention.
+This specification describes everything the Ingestro workload needs in an existing hub-and-spoke network. It is derived from Ingestro's reference implementation (a Pulumi program), which we deploy and test end-to-end on Azure (Function App, Private Endpoints, MongoDB Atlas over Private Link, egress through a firewall). Resource names below are examples; use your own naming convention.
 
 ## Contents
 
@@ -19,8 +19,7 @@ This specification describes everything the Ingestro workload needs in an existi
 10. [Firewall and DNS](#10-firewall-and-dns)
 11. [MongoDB Atlas](#11-mongodb-atlas)
 12. [Ingestro user platform from AVD](#12-ingestro-user-platform-from-avd)
-13. [Open items](#13-open-items)
-14. [Deployment order, permissions and verification](#14-deployment-order-permissions-and-verification)
+13. [Deployment order, permissions and verification](#13-deployment-order-permissions-and-verification)
 
 ## 1. Responsibilities
 
@@ -167,7 +166,7 @@ Either way, the DP Function App endpoint and the Blob endpoint each sit in their
 
 ## 7. App Service plans and apps
 
-**Identities:** give each app its own **user-assigned managed identity** (`azurerm_user_assigned_identity`), and grant its roles (Key Vault Secrets User on the vault, AcrPull on your ACR) before the app is created. With a system-assigned identity the roles can only be granted after the app exists, so its first start has no image pull rights and the Key Vault references do not resolve until the roles are in place and the app restarts. Role assignments can take a few minutes to propagate; if an app starts before that, restart it once. Our reference implementation still uses system-assigned identities with a restart after the role assignments; the user-assigned pattern above is not yet verified end to end there.
+**Identities:** give each app its own **user-assigned managed identity** (`azurerm_user_assigned_identity`), and grant its roles (Key Vault Secrets User on the vault, AcrPull on your ACR) before the app is created. With a system-assigned identity the roles can only be granted after the app exists, so its first start has no image pull rights and the Key Vault references do not resolve until the roles are in place and the app restarts. Role assignments can take a few minutes to propagate; if an app starts before that, restart it once.
 
 ### 7.1 Plans
 
@@ -559,25 +558,10 @@ The browser then gets its Pipelines access token from `https://<app gateway host
 | `nuvo-f0dde.firebaseapp.com`, `apis.google.com`, `accounts.google.com`                                      | Only for Google sign-in      | Sign in with Google                                           |
 | `github.com`                                                                                                | Only for GitHub sign-in      | Sign in with GitHub                                           |
 | `*.pusher.com`                                                                                              | Only if Pusher is configured | Realtime updates ([section 7.2](#72-dp-function-app))         |
-| `widget.usepylon.com`                                                                                       | Optional                     | Support chat                                                  |
-| `assets.cello.so`                                                                                           | Optional                     | Referral programme                                            |
-| `www.googletagmanager.com`, `cdn.matomo.cloud`, `getnuvo.matomo.cloud`, `dashboard-app.ben1100.workers.dev` | Optional                     | Product analytics                                             |
-| `docs.ingestro.com`                                                                                         | Optional                     | Documentation links                                           |
 
-The platform works without the optional hosts: blocking them only removes the support chat, the referral programme, analytics and the documentation links. The Pipelines calls themselves go to your App Gateway host, not to the internet.
+The Pipelines calls themselves go to your App Gateway host, not to the internet.
 
-## 13. Open items
-
-| #   | Item                                                                                                    | Owner                   | Status                                                                                                          |
-| --- | ------------------------------------------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 1   | WAF exclusion rule IDs for the upload / payload endpoints (and `/blob/*` if used)                       | Ingestro                | **Done:** see [section 9](#9-application-gateway-and-waf); your security team to accept the data-path trade-off |
-| 2   | Image source                                                                                            | Customer, with Ingestro | **Decided:** your ACR (import from Docker Hub with the registry key)                                            |
-| 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys        | Ingestro                | Per release                                                                                                     |
-| 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                                     | Customer                | To confirm                                                                                                      |
-| 5   | AI provider: optional, not required for the start                                                       | Customer                | Not required                                                                                                    |
-| 6   | Full AVD egress list for the Ingestro user platform ([section 12](#12-ingestro-user-platform-from-avd)) | Ingestro                | **Done:** see [section 12](#12-ingestro-user-platform-from-avd)                                                 |
-
-## 14. Deployment order, permissions and verification
+## 13. Deployment order, permissions and verification
 
 **Order**
 
