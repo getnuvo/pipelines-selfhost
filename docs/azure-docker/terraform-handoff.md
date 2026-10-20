@@ -519,7 +519,7 @@ Your users can work with Ingestro Pipelines in two ways, and both can be used si
 | Pipelines base URL     | Prod App Gateway host, e.g. `https://ingestro.company.local`    |
 | Pipelines dev base URL | Dev App Gateway host, e.g. `https://ingestro-dev.company.local` |
 
-The browser then gets its Pipelines access token from `https://<app gateway host>/dp/api/v1/access/token` with your license key, and switches between your Prod and Dev environments with the platform's live / dev mode.
+The browser then gets its Pipelines access token from `https://<app gateway host>/dp/api/v1/access/token`, and switches between your Prod and Dev environments with the platform's live / dev mode. Users do not enter the license key: the platform loads your organization's live / dev key from Ingestro's cloud and the browser on AVD sends it to your App Gateway for this request. Unlike the embeddables flow ([section 9](#9-application-gateway-and-waf)), where only your backend holds the key, the key therefore reaches the AVD browsers of your organization's platform users.
 
 **App Gateway:** the same listener, routing and WAF policies as in [section 9](#9-application-gateway-and-waf) (the WAF exclusions were measured with the user platform). The App Gateway host must resolve from AVD, and its certificate must be trusted by the AVD browsers. No CORS settings are needed on the App Gateway: DP answers CORS requests, including preflights, for any origin. For uploads and downloads, `https://dashboard.ingestro.com` is in the Blob CORS origins ([section 5](#5-storage-account)), with either Blob option.
 
