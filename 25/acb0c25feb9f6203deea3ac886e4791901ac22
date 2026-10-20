@@ -1,0 +1,19 @@
+docs/azure-docker/terraform-handoff.md
+  s_9eeee817b02b24::t_de1ced919eb1a4 4,6,21-23,76,118-119,122-127,138-144,160-162,166-167,185,225,275,477-484,514-528,530,532-554,559,561-562,565-567
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "25acb0c25feb9f6203deea3ac886e4791901ac22",
+  "prompts": {},
+  "sessions": {
+    "s_9eeee817b02b24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0183b915-c01d-4d6a-ac2e-1862b1a3798e",
+        "model": "unknown"
+      },
+      "human_author": "Nattapong Harnkwang <wimkung@gmail.com>"
+    }
+  }
+}
