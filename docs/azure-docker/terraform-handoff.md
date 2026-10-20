@@ -1,9 +1,9 @@
 # Ingestro Pipelines on Azure — Terraform handoff specification
 
 **For:** the customer's Infrastructure / DevOps team, to build the Ingestro workload in their Terraform modules.
-**Status:** draft for review. Open items are listed in [section 12](#12-open-items).
+**Status:** draft for review. Open items are listed in [section 13](#13-open-items).
 
-This specification describes everything the Ingestro workload needs in an existing hub-and-spoke network. It is derived from Ingestro's reference implementation (Pulumi, [`src/azure-docker.ts`](../../src/azure-docker.ts)), which we deploy and test end to end on Azure (Function App, Private Endpoints, MongoDB Atlas over Private Link, egress through a firewall). Resource names below are examples; use your own naming convention.
+This specification describes everything the Ingestro workload needs in an existing hub-and-spoke network. It is derived from Ingestro's reference implementation (a Pulumi program), which we deploy and test end to end on Azure (Function App, Private Endpoints, MongoDB Atlas over Private Link, egress through a firewall). Resource names below are examples; use your own naming convention.
 
 ## Contents
 
@@ -18,8 +18,9 @@ This specification describes everything the Ingestro workload needs in an existi
 9. [Application Gateway and WAF](#9-application-gateway-and-waf)
 10. [Firewall and DNS](#10-firewall-and-dns)
 11. [MongoDB Atlas](#11-mongodb-atlas)
-12. [Open items](#12-open-items)
-13. [Deployment order, permissions and verification](#13-deployment-order-permissions-and-verification)
+12. [Ingestro user platform from AVD](#12-ingestro-user-platform-from-avd)
+13. [Open items](#13-open-items)
+14. [Deployment order, permissions and verification](#14-deployment-order-permissions-and-verification)
 
 ## 1. Responsibilities
 
@@ -72,7 +73,7 @@ This specification describes everything the Ingestro workload needs in an existi
 | DP license key               | secret                                 | Dev key for Dev, live key for Prod                                        |
 | MongoDB connection string    | secret                                 | Atlas private endpoint SRV string                                         |
 | AI provider                  | Azure OpenAI endpoint, deployment, key | Or AWS Bedrock ([section 7.3](#73-mapping-web-app))                       |
-| App Gateway URL              | `https://ingestro-dev.company.local`   | Used as the embeddables' `baseUrl`                                        |
+| App Gateway URL              | `https://ingestro-dev.company.local`   | The embeddables' `baseUrl` and the user platform's Pipelines base URL     |
 | Origins of your applications | `https://app.company.local`            | Blob CORS, besides the Ingestro dashboards                                |
 
 ## 4. Spoke network
@@ -114,14 +115,16 @@ This specification describes everything the Ingestro workload needs in an existi
 | File share               | `hyperformula` (mounted into the DP Function App, [section 7.2](#72-dp-function-app)) |
 | Private Endpoints        | `blob`, `file`, `queue`, `table`, each with a DNS zone group to its hub zone          |
 
+**With Terraform and public access disabled:** create the container and the file share with `azurerm_storage_container` / `azurerm_storage_share` using `storage_account_id` (not `storage_account_name`): with `storage_account_id` they go through Azure Resource Manager, so your agent does not need to reach the storage Private Endpoints. Set the CORS rules below in the account's `blob_properties`, and don't set `queue_properties` or `static_website` on the account, which use the data plane.
+
 **Blob CORS** (browsers upload and download through SAS URLs):
 
-| Field                     | Value                                                                                                                                                 |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Allowed origins           | `https://dashboard.ingestro.com`, `https://dashboard-staging.ingestro.com`, `https://dashboard-develop.ingestro.com`, plus your applications' origins |
-| Allowed methods           | GET, HEAD, POST, PUT, DELETE, OPTIONS                                                                                                                 |
-| Allowed / exposed headers | `*`                                                                                                                                                   |
-| Max age                   | 3600                                                                                                                                                  |
+| Field                     | Value                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Allowed origins           | `https://dashboard.ingestro.com` (the Ingestro user platform, [section 12](#12-ingestro-user-platform-from-avd)), plus your applications' origins |
+| Allowed methods           | GET, HEAD, POST, PUT, DELETE, OPTIONS                                                                                                             |
+| Allowed / exposed headers | `*`                                                                                                                                               |
+| Max age                   | 3600                                                                                                                                              |
 
 **How browsers reach Blob storage** (choose one per environment):
 
@@ -132,13 +135,13 @@ Either way, the DP Function App endpoint and the Blob endpoint each sit in their
 
 ## 6. Key Vault and secrets
 
-| Setting               | Value                                                                   |
-| --------------------- | ----------------------------------------------------------------------- |
-| SKU                   | Standard                                                                |
-| Authorization         | Azure RBAC                                                              |
-| Public network access | Disabled; network ACL default Deny, bypass AzureServices                |
-| Private Endpoint      | `vault`, DNS zone group to `privatelink.vaultcore.azure.net`            |
-| Role assignments      | **Key Vault Secrets User** for the system-assigned identity of each app |
+| Setting               | Value                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| SKU                   | Standard                                                                                                           |
+| Authorization         | Azure RBAC                                                                                                         |
+| Public network access | Disabled; network ACL default Deny, bypass AzureServices                                                           |
+| Private Endpoint      | `vault`, DNS zone group to `privatelink.vaultcore.azure.net`                                                       |
+| Role assignments      | **Key Vault Secrets User** for the user-assigned identity of each app ([section 7](#7-app-service-plans-and-apps)) |
 
 | Secret                                                                       | Value                                                                                              | Used by                                                                                                                                   |
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -154,9 +157,13 @@ Either way, the DP Function App endpoint and the Blob endpoint each sit in their
 | `mapping-aws-bedrock-access-key-id`, `mapping-aws-bedrock-secret-access-key` | AWS keys                                                                                           | Mapping (AWS Bedrock only)                                                                                                                |
 | `pusher-secret`, `brevo-api-key`, `sendgrid-receiver-secret-key`             | Optional                                                                                           | Realtime updates / email, only if used                                                                                                    |
 
-**Reference secrets by version** in the app settings: `@Microsoft.KeyVault(SecretUri=https://<vault>.vault.azure.net/secrets/<name>/<version>)`. App Service caches unversioned references for up to 24 hours, even across restarts; with versioned references a new secret version changes the app setting and is applied immediately. Grant the role before the app settings are applied, so the references resolve on first start.
+**Writing secrets with Terraform:** `azurerm_key_vault_secret` writes through the Key Vault data plane (`https://<vault>.vault.azure.net`). With public access disabled, that needs an agent inside your network that reaches the vault's Private Endpoint and holds **Key Vault Secrets Officer**. Without such an agent, create the secrets through Azure Resource Manager with `azapi_resource` type `Microsoft.KeyVault/vaults/secrets` (body `properties.value`), which is not subject to the vault's network rules and needs `Microsoft.KeyVault/vaults/secrets/write` (e.g. Key Vault Contributor on the vault). Its `properties.secretUriWithVersion` (via `response_export_values`) is the versioned URI for the app settings. Our reference implementation writes the secrets this way, with public access disabled.
+
+**Reference secrets by version** in the app settings: `@Microsoft.KeyVault(SecretUri=https://<vault>.vault.azure.net/secrets/<name>/<version>)`. App Service caches unversioned references for up to 24 hours, even across restarts; with versioned references a new secret version changes the app setting and is applied immediately.
 
 ## 7. App Service plans and apps
+
+**Identities:** give each app its own **user-assigned managed identity** (`azurerm_user_assigned_identity`), and grant its roles (Key Vault Secrets User on the vault, AcrPull on your ACR) before the app is created. With a system-assigned identity the roles can only be granted after the app exists, so its first start has no image pull rights and the Key Vault references do not resolve until the roles are in place and the app restarts. Role assignments can take a few minutes to propagate; if an app starts before that, restart it once.
 
 ### 7.1 Plans
 
@@ -175,7 +182,7 @@ Check **App Service quota** in the region first (Quotas → App Service: the VMs
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Kind                           | `functionapp,linux,container` on the EP plan                                                                                                                             |
 | Container                      | `DOCKER\|<registry>/ingestro/pipelines:<version>`                                                                                                                        |
-| Identity                       | System-assigned; `key_vault_reference_identity` = SystemAssigned                                                                                                         |
+| Identity                       | User-assigned (`identity { type = "UserAssigned" }`); `key_vault_reference_identity_id` = that identity                                                                  |
 | HTTPS only / HTTP 2 / FTPS     | true / true / Disabled                                                                                                                                                   |
 | Public network access          | Disabled                                                                                                                                                                 |
 | VNet integration               | App subnet; **route all traffic** (`vnet_route_all_enabled`), **image pull over VNet** (`vnetImagePullEnabled`), **content share over VNet** (`vnetContentShareEnabled`) |
@@ -215,7 +222,7 @@ Check **App Service quota** in the region first (Quotas → App Service: the VMs
 | ------------------------------------------------ | ------------------------------------------------------------------- |
 | Kind                                             | `app,linux,container` on the P1v3 plan                              |
 | Container                                        | `DOCKER\|<registry>/ingestro/mapping:<version>`                     |
-| Identity, HTTPS, public access, VNet integration | Same as the DP Function App                                         |
+| Identity, HTTPS, public access, VNet integration | Same as the DP Function App (with its own user-assigned identity)   |
 | Always on                                        | true                                                                |
 | Private Endpoint                                 | `sites`, DNS zone group to `privatelink.azurewebsites.net`          |
 | Diagnostic setting                               | `AppServiceConsoleLogs`, `AppServiceHTTPLogs` → Log Analytics       |
@@ -265,7 +272,7 @@ The DP and mapping images verify the license against Ingestro's API: release ima
 
    `az acr import` runs through Azure Resource Manager, so it also works for a registry with public access disabled. The import needs outbound access from the machine or agent that runs it, not from the spokes.
 
-2. **Pull with managed identity:** grant **AcrPull** on the registry to the system-assigned identity of both apps, set `acr_use_managed_identity_credentials = true` in their site config, and the app setting `DOCKER_REGISTRY_SERVER_URL=https://<acr>.azurecr.io` (no username or password).
+2. **Pull with managed identity:** grant **AcrPull** on the registry to the user-assigned identity of both apps, set `container_registry_use_managed_identity = true` and `container_registry_managed_identity_client_id` = the identity's client ID in their site config, and the app setting `DOCKER_REGISTRY_SERVER_URL=https://<acr>.azurecr.io` (no username or password).
 3. **Network:** the ACR needs a Private Endpoint (`privatelink.azurecr.io`, resolvable from the spokes), since both apps pull images over the VNet (`vnetImagePullEnabled`).
 4. **Upgrade:** import the new tags, then change the image tags in your Terraform and apply. **Rollback:** apply the previous tags (keep them in the ACR).
 
@@ -467,14 +474,14 @@ Start in Detection mode if you prefer, check `AGWFirewallLogs` during your accep
 
 **Egress allow-list from the Ingestro spokes** (application rules, HTTPS 443)
 
-| FQDN                                            | Why                                                                                                                 |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `api-gateway.ingestro.com`                      | License verification on every execution, user access tokens (`api-gateway-develop.ingestro.com` for `dev-*` images) |
-| Azure OpenAI endpoint (or its Private Endpoint) | Mapping module                                                                                                      |
-| `bedrock-runtime.<region>.amazonaws.com`        | Mapping module, only with AWS Bedrock                                                                               |
-| `*.pusher.com`, `*.pusherapp.com`               | Only if Pusher is configured                                                                                        |
-| `api.brevo.com`                                 | Only if Brevo is configured                                                                                         |
-| Your pipeline data sources and destinations     | Input and output connectors                                                                                         |
+| FQDN                                            | Why                                                         |
+| ----------------------------------------------- | ----------------------------------------------------------- |
+| `api-gateway.ingestro.com`                      | License verification on every execution, user access tokens |
+| Azure OpenAI endpoint (or its Private Endpoint) | Mapping module                                              |
+| `bedrock-runtime.<region>.amazonaws.com`        | Mapping module, only with AWS Bedrock                       |
+| `*.pusher.com`, `*.pusherapp.com`               | Only if Pusher is configured                                |
+| `api.brevo.com`                                 | Only if Brevo is configured                                 |
+| Your pipeline data sources and destinations     | Input and output connectors                                 |
 
 Docker Hub is not on this list: the apps pull from your ACR ([section 8](#8-container-images)), and only the import pipeline reaches Docker Hub.
 
@@ -504,28 +511,60 @@ Recommended baseline:
 
 **Private Link with Terraform:** an Atlas endpoint service for Azure in the region (`mongodbatlas_privatelink_endpoint`), an `azurerm_private_endpoint` in the Ingestro endpoint subnet with a **manual** connection to the endpoint service's Private Link Service, and the endpoint registration in Atlas (`mongodbatlas_privatelink_endpoint_service` with the Azure endpoint ID and IP). The DP connection string is the **private endpoint SRV string** (`mongodb+srv://<user>:<password>@<cluster>-pl-0.<id>.mongodb.net/?retryWrites=true&w=majority`), stored as the `data-pipeline-db-uri` secret. The NSG rules above already allow the spoke to reach the endpoint on ports 1024 and up.
 
-## 12. Open items
+## 12. Ingestro user platform from AVD
 
-| #   | Item                                                                                             | Owner                   | Status                                                                                                          |
-| --- | ------------------------------------------------------------------------------------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 1   | WAF exclusion rule IDs for the upload / payload endpoints (and `/blob/*` if used)                | Ingestro                | **Done:** see [section 9](#9-application-gateway-and-waf); your security team to accept the data-path trade-off |
-| 2   | Image source                                                                                     | Customer, with Ingestro | **Decided:** your ACR (import from Docker Hub with the registry key)                                            |
-| 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys | Ingestro                | Per release                                                                                                     |
-| 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                              | Customer                | To confirm                                                                                                      |
-| 5   | AI provider for the mapping module (Azure OpenAI recommended)                                    | Customer                | To confirm                                                                                                      |
+Your users can work with Ingestro Pipelines in two ways, and both can be used side by side:
 
-## 13. Deployment order, permissions and verification
+- **Embeddables in your own applications:** the components run in your application and call the App Gateway host (`baseUrl`). Nothing beyond the sections above is needed.
+- **The Ingestro user platform** (`https://dashboard.ingestro.com`), opened in a browser on AVD. The platform itself (sign-in, organization settings) is served by Ingestro's cloud, while every Pipelines call (connectors, pipelines, executions, data) goes from the browser straight to your App Gateway host. Pipeline data does not pass through Ingestro's cloud.
+
+**Settings in the user platform** (organization settings, Products tab, by an admin of your organization):
+
+| Setting                | Value                                                           |
+| ---------------------- | --------------------------------------------------------------- |
+| Pipelines base URL     | Prod App Gateway host, e.g. `https://ingestro.company.local`    |
+| Pipelines dev base URL | Dev App Gateway host, e.g. `https://ingestro-dev.company.local` |
+
+The browser then gets its Pipelines access token from `https://<app gateway host>/dp/api/v1/access/token` with your license key, and switches between your Prod and Dev environments with the platform's live / dev mode.
+
+**App Gateway:** the same listener, routing and WAF policies as in [section 9](#9-application-gateway-and-waf) (the WAF exclusions were measured with the user platform). The App Gateway host must resolve from AVD, and its certificate must be trusted by the AVD browsers. No CORS settings are needed on the App Gateway: DP answers CORS requests, including preflights, for any origin. For uploads and downloads, `https://dashboard.ingestro.com` is in the Blob CORS origins ([section 5](#5-storage-account)), with either Blob option.
+
+**Browser policy:** `dashboard.ingestro.com` is a public site that calls a private address (your App Gateway, and the Blob Private Endpoint with option B). Chrome and Edge restrict such requests (Local Network Access) and may block them or ask the user for permission. Allow `https://dashboard.ingestro.com` through your browsers' Local Network Access enterprise policy on the AVD session hosts.
+
+**AVD egress** (HTTPS 443), at least:
+
+| FQDN                       | Why                                             |
+| -------------------------- | ----------------------------------------------- |
+| `dashboard.ingestro.com`   | The user platform                               |
+| `api-gateway.ingestro.com` | Sign-in, organization settings, user management |
+
+The full list (sign-in providers, the platform's CDN and support widget) follows from Ingestro ([section 13](#13-open-items), item 6).
+
+## 13. Open items
+
+| #   | Item                                                                                                    | Owner                   | Status                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 1   | WAF exclusion rule IDs for the upload / payload endpoints (and `/blob/*` if used)                       | Ingestro                | **Done:** see [section 9](#9-application-gateway-and-waf); your security team to accept the data-path trade-off |
+| 2   | Image source                                                                                            | Customer, with Ingestro | **Decided:** your ACR (import from Docker Hub with the registry key)                                            |
+| 3   | Release versions of `ingestro/pipelines` and `ingestro/mapping`, and the live / dev license keys        | Ingestro                | Per release                                                                                                     |
+| 4   | Blob access option A (App Gateway `/blob/*`) or B (direct from AVD)                                     | Customer                | To confirm                                                                                                      |
+| 5   | AI provider for the mapping module (Azure OpenAI recommended)                                           | Customer                | To confirm                                                                                                      |
+| 6   | Full AVD egress list for the Ingestro user platform ([section 12](#12-ingestro-user-platform-from-avd)) | Ingestro                | To provide                                                                                                      |
+
+## 14. Deployment order, permissions and verification
 
 **Order**
 
 1. Subnets, route table, NSG and ASG in the spoke; spoke DNS server = firewall IP.
-2. Storage account (container, file share, CORS), Key Vault, Log Analytics; their Private Endpoints and DNS zone groups.
+2. Storage account (container, file share, CORS), Key Vault and its secrets, Log Analytics; their Private Endpoints and DNS zone groups.
 3. Atlas endpoint service, the Atlas Private Endpoint, its registration in Atlas.
-4. App Service plans; both apps with system-assigned identities, VNet integration and their Private Endpoints.
-5. Role assignments (Key Vault Secrets User, AcrPull), then the Key Vault secrets and the app settings (versioned references) and the Azure Files mount.
+4. A user-assigned identity per app and its role assignments (Key Vault Secrets User on the vault, AcrPull on the ACR).
+5. App Service plans; both apps with their identities, app settings (versioned Key Vault references), the Azure Files mount, VNet integration and their Private Endpoints.
 6. Firewall rules, App Gateway backend / probe / routing / WAF policy.
 
-**Permissions for the deploying service principal** (least privilege): create resources in the Ingestro resource group; assign roles scoped to the Key Vault and the ACR for the apps' identities; join the spoke subnets; write records in the hub Private DNS zones (`Microsoft.Network/privateDnsZones/join/action`, e.g. Private DNS Zone Contributor on those zones). Writing Key Vault secrets through ARM works with the vault's public access disabled.
+**Permissions for the deploying service principal** (least privilege): create resources in the Ingestro resource group; assign roles scoped to the Key Vault and the ACR for the apps' identities; join the spoke subnets; write records in the hub Private DNS zones (`Microsoft.Network/privateDnsZones/join/action`, e.g. Private DNS Zone Contributor on those zones); write Key Vault secrets through ARM (`Microsoft.KeyVault/vaults/secrets/write`).
+
+**Agent location:** with the ARM-based resources in [section 5](#5-storage-account) and [section 6](#6-key-vault-and-secrets), the deploying agent does not need to be inside your network. If you use `azurerm_key_vault_secret` (or other data-plane resources) instead, run a self-hosted agent that reaches the Key Vault and Storage Private Endpoints, with the matching data-plane roles (Key Vault Secrets Officer).
 
 **Verification**
 
