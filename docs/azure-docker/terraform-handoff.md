@@ -549,15 +549,15 @@ The browser then gets its Pipelines access token from `https://<app gateway host
 
 **AVD egress** (HTTPS 443; taken from the production user platform on 2026-10-20):
 
-| FQDN                                                                                                        | Needed                       | Why                                                           |
-| ----------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------- |
-| `dashboard.ingestro.com`                                                                                    | Required                     | The user platform                                             |
-| `api-gateway.ingestro.com`                                                                                  | Required                     | Sign-in, organization settings, user management, license keys |
-| `identitytoolkit.googleapis.com`, `securetoken.googleapis.com`                                              | Required                     | Sign-in and session refresh (Firebase Authentication)         |
-| `fonts.ingestro.com`, `kit-pro.fontawesome.com`                                                             | Required                     | Fonts and icons                                               |
-| `nuvo-f0dde.firebaseapp.com`, `apis.google.com`, `accounts.google.com`                                      | Only for Google sign-in      | Sign in with Google                                           |
-| `github.com`                                                                                                | Only for GitHub sign-in      | Sign in with GitHub                                           |
-| `*.pusher.com`                                                                                              | Only if Pusher is configured | Realtime updates ([section 7.2](#72-dp-function-app))         |
+| FQDN                                                                                         | Needed                            | Why                                                                                   |
+| -------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------- |
+| `dashboard.ingestro.com`                                                                     | Required                          | The user platform                                                                     |
+| `api-gateway.ingestro.com`                                                                   | Required                          | Sign-in, organization settings, user management, license keys                         |
+| `fonts.ingestro.com`, `kit-pro.fontawesome.com`                                              | Required                          | Fonts and icons                                                                       |
+| `identitytoolkit.googleapis.com`, `securetoken.googleapis.com`, `nuvo-f0dde.firebaseapp.com` | Only for Google or GitHub sign-in | Sign-in through Firebase Authentication (email and password sign-in does not need it) |
+| `apis.google.com`, `accounts.google.com`                                                     | Only for Google sign-in           | Sign in with Google                                                                   |
+| `github.com`                                                                                 | Only for GitHub sign-in           | Sign in with GitHub                                                                   |
+| `*.pusher.com`                                                                               | Only if Pusher is configured      | Realtime updates ([section 7.2](#72-dp-function-app))                                 |
 
 The Pipelines calls themselves go to your App Gateway host, not to the internet.
 
