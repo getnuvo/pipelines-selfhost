@@ -76,7 +76,7 @@ Without it, the deployment fails on the App Service plans with `Operation cannot
 ### License key and images
 
 - One DP license key per environment.
-- **Image version and license go together:** `dev-*` images (e.g. `version: dev-0.147.0`, `mappingVersion: 20457-develop`) verify licenses against Ingestro's develop environment and need a dev license key; release images (e.g. `1.7.1`) need a live key. The wizard picks the matching license API from the version.
+- **Image version and license go together:** `dev-*` images (e.g. `version: dev-0.147.0`, `mappingVersion: 20457-develop`) verify licenses against Ingestro's develop environment and need a dev license key; release images (e.g. `1.8.0`) need a live key. The wizard picks the matching license API from the version.
 
 ### Hub
 
